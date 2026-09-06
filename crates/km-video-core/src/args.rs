@@ -107,6 +107,26 @@ pub const RECORDS_NAME: &str = "km-video-fetch-records.jsonl";
 /// from. It says whose it is for `RECORDS_NAME`'s third reason.
 pub const BATCH_NAME: &str = "km-video-fetch.txt";
 
+/// One progress line, for a caller reading yt-dlp's output rather than showing it.
+///
+/// **The prefix is what makes the stream parseable at all.** yt-dlp writes this on stdout amongst
+/// its ordinary `[youtube]` and `[download]` lines, so a reader needs to tell one kind from the
+/// other; anything without the prefix is yt-dlp talking to a person and is passed through as such.
+///
+/// Three things about the values, all of them observed rather than assumed:
+///
+/// * **They are space-padded to a fixed width** — `pct=  2.4%` — so every field is trimmed before
+///   it is parsed.
+/// * **`Unknown` and `NA` are ordinary values.** Speed is unknown for the first second of every
+///   download, and eta is `NA` on the final line.
+/// * **`status=finished` ends one file, not the run.** A playlist emits it once per video.
+///
+/// `_percent_str` and its siblings rather than the raw byte counts because yt-dlp has already done
+/// the arithmetic, including for a fragmented download where the total is only an estimate.
+pub const PROGRESS_TEMPLATE: &str = "download:KMP status=%(progress.status)s \
+     pct=%(progress._percent_str)s speed=%(progress._speed_str)s eta=%(progress._eta_str)s \
+     title=%(info.title)s";
+
 /// Pushes one plain-text argument.
 ///
 /// A macro rather than a closure because the argv is built from a mixture of `&str` literals and
@@ -143,6 +163,13 @@ pub struct Plan {
     pub sort: Option<String>,
     /// Ask what would happen and download nothing.
     pub dry_run: bool,
+    /// Emit machine-readable progress lines beside the ordinary output.
+    ///
+    /// Off for a command line, which lets yt-dlp draw its own bar into the terminal it was given —
+    /// that bar is better than anything reconstructed from a pipe. On for a caller that has no
+    /// terminal to hand over and must read the progress instead, which is what a web page is. See
+    /// [`PROGRESS_TEMPLATE`] and [`crate::fetch::Progress`].
+    pub progress_lines: bool,
 }
 
 impl Plan {
@@ -250,6 +277,16 @@ pub fn argv(plan: &Plan) -> Vec<OsString> {
     // into a log.
     flag!(args, "--newline");
 
+    // ...and for a caller with no terminal to give away, a second progress stream it can parse.
+    // `--progress-delta` is what stops that stream being tens of lines a second on a fast link: the
+    // page redraws once a second, so anything finer is work nobody sees.
+    if plan.progress_lines {
+        flag!(args, "--progress-delta");
+        flag!(args, "0.5");
+        flag!(args, "--progress-template");
+        flag!(args, PROGRESS_TEMPLATE);
+    }
+
     if let Some(limit) = plan.limit {
         flag!(args, "--playlist-items");
         args.push(OsString::from(format!("1:{limit}")));
@@ -314,6 +351,7 @@ mod tests {
             format: None,
             sort: None,
             dry_run: false,
+            progress_lines: false,
         }
     }
 
@@ -399,6 +437,28 @@ mod tests {
         assert!(!args.contains(&"--embed-thumbnail".to_owned()));
         assert!(!args.contains(&"--embed-subs".to_owned()));
         assert!(!args.contains(&"--restrict-filenames".to_owned()));
+    }
+
+    /// The progress stream is for a caller with no terminal, and a command line has one. Asserted
+    /// in both directions because the cost of getting it wrong is asymmetric: an extra
+    /// `--progress-template` in a terminal run replaces yt-dlp's bar with a wall of text, and a
+    /// missing one in a watched run leaves a page with a bar that never moves.
+    #[test]
+    fn progress_lines_are_asked_for_rather_than_assumed() {
+        let args = strings(&plan());
+        assert!(!args.contains(&"--progress-template".to_owned()));
+        assert!(!args.contains(&"--progress-delta".to_owned()));
+        // Unconditional, and a different thing: it only stops the bar being one very long line.
+        assert!(args.contains(&"--newline".to_owned()));
+
+        let mut plan = plan();
+        plan.progress_lines = true;
+        let args = strings(&plan);
+        assert_eq!(
+            value_of(&args, "--progress-template").as_deref(),
+            Some(PROGRESS_TEMPLATE)
+        );
+        assert_eq!(value_of(&args, "--progress-delta").as_deref(), Some("0.5"));
     }
 
     #[test]
