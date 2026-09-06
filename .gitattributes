@@ -7,6 +7,9 @@
 *.md    text eol=lf
 *.yml   text eol=lf
 *.json  text eol=lf
+*.html  text eol=lf
+*.css   text eol=lf
+*.js    text eol=lf
 
 # **Shell scripts must keep LF wherever they are checked out**, and this one is load-bearing rather
 # than cosmetic. `sh` on Linux and macOS treats a trailing CR as part of the interpreter path, so a
@@ -17,3 +20,10 @@
 # Note the lock file is deliberately *not* listed as binary: it is a text file, it wants normalizing
 # like everything else, and it is committed because these are binaries and a tool with a floating
 # dependency tree is one that stops working quietly.
+
+# The application icons are generated but committed: `build.rs` reads the .ico at build time, and a
+# fresh clone that had to run a generator first would build with the wrong icon and no hint why.
+# See icon/README.md.
+*.png binary
+*.ico binary
+*.icns binary

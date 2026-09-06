@@ -7,13 +7,19 @@
 //! Unlike ffmpeg it takes a `--yt-dlp` override, because yt-dlp is very often installed by `pipx` or
 //! into a virtualenv and is genuinely often *not* on `PATH` even on a machine that has it.
 //!
-//! # Why the child keeps the terminal
+//! # Why the child keeps the terminal, where there is one
 //!
-//! yt-dlp's progress output is better than anything this could reconstruct from a pipe, so stdout
-//! and stderr are inherited and it draws straight to the terminal. The machine-readable half goes to
-//! a file instead, via `--print-to-file`. That is not merely simpler than piping — it removes the
-//! failure the ffmpeg call in [`crate::profile`] has to spawn a thread to avoid, where a child fills a pipe nobody
-//! is draining and both processes stop.
+//! yt-dlp's progress output is better than anything this could reconstruct from a pipe, so [`spawn`]
+//! inherits stdout and stderr and it draws straight to the terminal. The machine-readable half goes
+//! to a file instead, via `--print-to-file`. That is not merely simpler than piping — it removes the
+//! failure the ffmpeg call in [`crate::profile`] has to spawn a thread to avoid, where a child fills
+//! a pipe nobody is draining and both processes stop.
+//!
+//! **A web page has no terminal to hand over**, so [`spawn_watched`] pipes after all — and it is
+//! therefore the one function here that has to answer the paragraph above rather than benefit from
+//! it. It does so the same way `profile::transcode` does: **each pipe is drained by a thread of its
+//! own**, so neither can fill while nothing reads it. The caller's line sink runs on the stdout
+//! thread. Nothing about [`spawn`] changes; the two exist side by side because the choice is real.
 
 use std::ffi::{OsStr, OsString};
 use std::path::{Path, PathBuf};
@@ -123,8 +129,9 @@ pub fn ensure_ffmpeg() -> Result<()> {
         .stderr(Stdio::null())
         .status()
         .context(
-            "could not run `ffmpeg` — yt-dlp needs it to merge streams and to write metadata; \
-             tools/setup/fetch-ffmpeg.sh installs one",
+            "could not run `ffmpeg` — yt-dlp needs it to merge streams and to write metadata, and \
+             `ffprobe` from the same package is what reads the result back. Install it with your \
+             package manager, winget or brew.",
         )?;
     Ok(())
 }
@@ -141,6 +148,105 @@ pub fn spawn(binary: &OsStr, args: &[OsString]) -> Result<bool> {
         .status()
         .with_context(|| format!("running `{}`", binary.to_string_lossy()))?;
     Ok(status.success())
+}
+
+/// Whether to keep going.
+///
+/// Returned by the line sink rather than read from a flag the caller also holds, so that the one
+/// thing already being called for every line is also the thing that can say stop. There is nowhere
+/// else to ask: between lines is the only moment this function is not blocked on a pipe.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Flow {
+    /// Carry on.
+    Go,
+    /// Stop as soon as possible.
+    Stop,
+}
+
+/// Runs yt-dlp with its output piped, calling `on_line` for every line of it.
+///
+/// **`on_line` also says whether to carry on**, by returning a [`Flow`]. A caller with a Stop
+/// button has nowhere else to be asked: between lines is the only moment this function is not
+/// blocked on a pipe.
+///
+/// The same contract as [`spawn`] — a non-zero exit is reported rather than raised — and the same
+/// return value. What differs is where yt-dlp's words go: to `on_line` rather than to a terminal.
+///
+/// **Both pipes are drained, and this is the whole reason the function is not three lines.** A child
+/// whose stderr fills while nothing reads it stops, and so does the parent waiting on it; "the
+/// download hangs on some videos" is not a bug worth discovering later.
+///
+/// The split of labour is the one `profile::transcode` already uses, and it is deliberate rather
+/// than incidental: **stdout is read on this thread** and stderr on a thread of its own that only
+/// collects. That is what keeps `on_line` off any thread but the caller's — so it need not be
+/// `Send`, and a caller may hand over a closure holding whatever it likes. The price is that
+/// stderr arrives in a block at the end rather than interleaved; with `--newline` in effect
+/// yt-dlp's progress and nearly all of its narration are on stdout, and what stderr carries is the
+/// errors, which is exactly the part somebody reads afterwards.
+///
+/// Lines are what a caller gets rather than bytes, because yt-dlp is asked for `--newline` and the
+/// progress template writes whole lines too. A line that is not valid UTF-8 is lossily converted
+/// rather than dropped: a video with an unusual title is exactly the one somebody is watching for.
+pub fn spawn_watched(
+    binary: &OsStr,
+    args: &[OsString],
+    mut on_line: impl FnMut(&str) -> Flow,
+) -> Result<bool> {
+    let mut child = Command::new(binary)
+        .args(args)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .with_context(|| format!("running `{}`", binary.to_string_lossy()))?;
+
+    let stderr = child.stderr.take();
+    let collect = std::thread::spawn(move || lines_of(stderr));
+
+    // **Read as it arrives, not collected first.** stdout is where the progress is, and a caller
+    // drawing a bar from it needs the lines now rather than at the end.
+    let mut stopped = false;
+    if let Some(stdout) = child.stdout.take() {
+        use std::io::{BufRead as _, BufReader};
+        for line in BufReader::new(stdout).split(b'\n').map_while(Result::ok) {
+            let text = String::from_utf8_lossy(&line).trim_end().to_owned();
+            if text.is_empty() {
+                continue;
+            }
+            if on_line(&text) == Flow::Stop {
+                // **Killed, because there is no gentler way.** yt-dlp downloads a whole playlist in
+                // one process, so stopping means ending it. What it leaves behind is a `.part` file,
+                // and `--continue` — which this always passes — picks that up next time rather than
+                // starting the video again.
+                let _ = child.kill();
+                stopped = true;
+                break;
+            }
+        }
+    }
+
+    let status = child.wait().context("waiting for yt-dlp")?;
+    for line in collect.join().unwrap_or_default() {
+        on_line(&line);
+    }
+    // A killed child exits unsuccessfully, and reporting that as a failure would put "yt-dlp
+    // reported a failure" on the screen of somebody who pressed Stop.
+    Ok(stopped || status.success())
+}
+
+/// Every non-empty line a reader produces, lossily decoded.
+fn lines_of(reader: Option<impl std::io::Read>) -> Vec<String> {
+    use std::io::{BufRead, BufReader};
+
+    let Some(reader) = reader else {
+        return Vec::new();
+    };
+    BufReader::new(reader)
+        .split(b'\n')
+        .map_while(Result::ok)
+        .map(|bytes| String::from_utf8_lossy(&bytes).trim_end().to_owned())
+        .filter(|line| !line.is_empty())
+        .collect()
 }
 
 /// One line of `--print-to-file`: what yt-dlp knew about one video.

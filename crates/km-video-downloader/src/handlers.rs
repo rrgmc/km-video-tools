@@ -1,0 +1,435 @@
+//! What the controls do.
+//!
+//! The split with [`crate::views`] is that views render and handlers act. Everything here is a POST,
+//! and every refusal is `(StatusCode, String)` carrying a sentence written for a person — because
+//! **htmx does not swap a non-2xx response**, so a handler that answers 500 with a perfect
+//! explanation puts nothing on the page at all. `ui.js` catches those and shows the sentence; that
+//! is most of why it exists.
+
+use std::path::PathBuf;
+
+use axum::extract::{Multipart, State as AxumState};
+use axum::http::StatusCode;
+use axum::response::{IntoResponse, Response};
+
+use km_video_core::{args, fetch};
+
+use crate::browse;
+use crate::server::State;
+
+/// `POST /out` — set the folder the files go into.
+///
+/// Answers with the whole page rather than a fragment, because changing the folder changes four
+/// things on it at once: whether the folder exists, how many videos are in it, whether it carries
+/// its own list of links, and what the browser is showing.
+pub async fn set_out(AxumState(state): AxumState<State>, body: String) -> Response {
+    let fields = Fields::parse(&body);
+    let Some(typed) = fields.one("path") else {
+        return refused("No folder given.");
+    };
+    let path = browse::tidy(&typed);
+    if path.as_os_str().is_empty() {
+        return refused("No folder given.");
+    }
+
+    let mut settings = state.settings();
+    settings.out = path.display().to_string();
+    state.remember(settings);
+
+    crate::views::render_page(&state)
+}
+
+/// `POST /fetch` — start one.
+///
+/// Multipart, because one of the ways to say what to fetch is a file, and a form that carries a file
+/// is multipart whether or not one was chosen.
+pub async fn start(AxumState(state): AxumState<State>, multipart: Multipart) -> Response {
+    let form = match Form::read(multipart).await {
+        Ok(form) => form,
+        Err(why) => return refused(&why),
+    };
+
+    let mut settings = state.settings();
+    let Some(out) = settings.out() else {
+        return refused("Set a folder for the videos first.");
+    };
+
+    // **Checked here rather than left to yt-dlp**, because yt-dlp does not treat an unknown browser
+    // as a usage error it refuses up front: it starts, extracts, and then fails on the first video
+    // with something that reads like the site said no. A misspelling deserves to be a sentence
+    // before anything has been downloaded.
+    if let Some(browser) = &form.cookies_from_browser
+        && !args::browser_is_known(browser)
+    {
+        return refused(&format!(
+            "\"{browser}\" is not a browser yt-dlp can read cookies from. It knows {}.",
+            args::COOKIE_BROWSERS.join(", ")
+        ));
+    }
+
+    // The options are remembered as they are used rather than through a Save button, which is the
+    // only arrangement where what runs and what comes back tomorrow cannot disagree.
+    settings.playlist = form.playlist;
+    settings.normalize = form.normalize;
+    settings.subs = form.subs;
+    settings.limit = form.limit;
+    settings.cookies_from_browser = form.cookies_from_browser.clone();
+    state.remember(settings.clone());
+
+    let urls = form.urls();
+    // An empty list is not a refusal on its own: the folder may carry its own, and `fetch` falls
+    // back to it and says so. What is a refusal is nothing anywhere, and that is `fetch`'s to say
+    // — it knows the file name to name.
+    let from_file = if urls.is_empty() {
+        None
+    } else {
+        match write_batch(&out, &urls) {
+            Ok(path) => Some(path),
+            Err(why) => return refused(&format!("Could not write the list of links: {why:#}")),
+        }
+    };
+
+    let archive = (!form.no_archive).then(|| args::Plan::default_archive(&out));
+    let request = fetch::Request {
+        plan: args::Plan {
+            targets: Vec::new(),
+            from_file,
+            playlist: form.playlist,
+            out,
+            limit: form.limit,
+            archive,
+            cookies_from_browser: form.cookies_from_browser,
+            subs: form.subs,
+            format: None,
+            sort: None,
+            dry_run: form.dry_run,
+            progress_lines: true,
+        },
+        yt_dlp: state.yt_dlp(),
+        normalize: form.normalize,
+        // **The whole reason this exists.** There is no terminal to hand yt-dlp, so its output is
+        // read instead and turned into a bar.
+        progress: fetch::Progress::Watched,
+    };
+
+    let job = match state.start_job("starting") {
+        Ok(job) => job,
+        Err(said) => return (StatusCode::CONFLICT, said).into_response(),
+    };
+
+    // **`spawn_blocking`, not `spawn`.** `fetch` is ordinary blocking code — it waits on a child
+    // process and reads a pipe — and running it on an async worker would stall every other request,
+    // including the poll that draws the bar.
+    let working = std::sync::Arc::clone(&job);
+    tokio::task::spawn_blocking(move || {
+        let outcome = fetch::fetch(&request, |event| {
+            working.absorb(&event);
+            // **Where Stop actually takes effect.** The flag the button sets is read here, on the
+            // one closure that is already called at every point where stopping is possible.
+            if working.stopping() {
+                fetch::Flow::Stop
+            } else {
+                fetch::Flow::Go
+            }
+        });
+        match outcome {
+            Ok(outcome) => working.done_with(summarize(&outcome, form.dry_run)),
+            Err(error) => working.failed_with(format!("{error:#}")),
+        }
+    });
+
+    crate::views::job_fragment(&job)
+}
+
+/// `POST /fetch/stop` — ask the run to stop after the video it is on.
+pub async fn stop(AxumState(state): AxumState<State>) -> Response {
+    if let Some(job) = state.job() {
+        job.ask_to_stop();
+        return crate::views::job_fragment(&job);
+    }
+    refused("There is nothing running.")
+}
+
+/// One sentence, worded for a person, with a status htmx will not swap.
+fn refused(said: &str) -> Response {
+    (StatusCode::BAD_REQUEST, said.to_owned()).into_response()
+}
+
+/// How a finished run is described in one line.
+fn summarize(outcome: &fetch::Outcome, dry_run: bool) -> String {
+    let count = plural(outcome.fetched, "video", "videos");
+    // **Said first, because it changes what every other number means.** A run somebody stopped did
+    // not fetch nothing; it fetched what it had reached, and an unfinished download resumes next
+    // time from its `.part` file.
+    if outcome.stopped {
+        return format!("stopped — {count} finished first");
+    }
+    // **A run where yt-dlp failed and produced nothing must not read as a quiet success**, and it
+    // did until somebody watched a 403 be reported as "nothing new — every link was already in the
+    // archive". That sentence is true of a folder already up to date and is a lie about a download
+    // that could not be made; only `completed` tells them apart.
+    if !outcome.completed && outcome.fetched == 0 {
+        return "yt-dlp could not fetch anything — what it said is below".to_owned();
+    }
+    match (outcome.fetched, dry_run) {
+        (0, true) => "nothing to fetch".to_owned(),
+        (0, false) => {
+            "nothing new — every link was already in the archive, or none produced a file"
+                .to_owned()
+        }
+        (_, true) => format!("would fetch {count}"),
+        (_, false) if !outcome.completed => {
+            format!("fetched {count}, and yt-dlp reported a failure — see below")
+        }
+        (_, false) if outcome.all_playable => format!("fetched {count}"),
+        _ => format!("fetched {count}, and at least one cannot be played as it is"),
+    }
+}
+
+/// `1 video` / `2 videos`.
+fn plural(count: usize, one: &str, many: &str) -> String {
+    if count == 1 {
+        format!("{count} {one}")
+    } else {
+        format!("{count} {many}")
+    }
+}
+
+/// Writes the links out for yt-dlp to read with `--batch-file`.
+///
+/// **A file rather than arguments**, and not for tidiness: a playlist pasted in as three hundred
+/// links is an argv well past what Windows will accept, and this is the one place a page can hand
+/// over that many at once. It lands in the output folder under a name a person will recognise if an
+/// interrupted run ever leaves one behind.
+fn write_batch(out: &std::path::Path, urls: &[String]) -> anyhow::Result<PathBuf> {
+    std::fs::create_dir_all(out)?;
+    let path = out.join("km-video-fetch-asked.txt");
+    std::fs::write(&path, urls.join("\n"))?;
+    Ok(path)
+}
+
+/// Everything the Fetch form carries.
+#[derive(Debug, Default)]
+struct Form {
+    /// The textarea, one link per line.
+    typed: String,
+    /// The picked file's contents, where one was picked.
+    picked: String,
+    /// Whether to take the folder's own list as well.
+    own_list: Option<String>,
+    playlist: bool,
+    normalize: bool,
+    subs: bool,
+    no_archive: bool,
+    dry_run: bool,
+    limit: Option<u32>,
+    cookies_from_browser: Option<String>,
+}
+
+impl Form {
+    /// Reads the multipart body.
+    ///
+    /// An unticked checkbox is simply absent from a form post, which is why every flag here is set
+    /// by seeing its name rather than by reading its value.
+    async fn read(mut multipart: Multipart) -> Result<Self, String> {
+        let mut form = Self::default();
+
+        while let Some(field) = multipart
+            .next_field()
+            .await
+            .map_err(|error| format!("could not read the form: {error}"))?
+        {
+            let name = field.name().unwrap_or_default().to_owned();
+            let text = field
+                .text()
+                .await
+                .map_err(|error| format!("could not read `{name}`: {error}"))?;
+
+            match name.as_str() {
+                "urls" => form.typed = text,
+                // **The file's contents, never its path.** A browser does not give a page the
+                // location of a picked file, and does not need to: the lines are the whole point.
+                "list" => form.picked = text,
+                "own_list" => form.own_list = (!text.trim().is_empty()).then_some(text),
+                "playlist" => form.playlist = true,
+                "normalize" => form.normalize = true,
+                "subs" => form.subs = true,
+                "no_archive" => form.no_archive = true,
+                "dry_run" => form.dry_run = true,
+                "limit" => form.limit = text.trim().parse().ok(),
+                "cookies_from_browser" => {
+                    form.cookies_from_browser =
+                        (!text.trim().is_empty()).then(|| text.trim().to_owned());
+                }
+                _ => {}
+            }
+        }
+
+        Ok(form)
+    }
+
+    /// Every link the form named, from whichever of the three ways it was given.
+    ///
+    /// All three at once is allowed and is not a mistake somebody should be told off for: pasting
+    /// two links beside a picked file of forty means forty-two, and duplicates are dropped rather
+    /// than fetched twice.
+    fn urls(&self) -> Vec<String> {
+        let mut all = urls_in(&self.typed);
+        all.extend(urls_in(&self.picked));
+        if let Some(list) = &self.own_list
+            && let Ok(text) = std::fs::read_to_string(list)
+        {
+            all.extend(urls_in(&text));
+        }
+        all.dedup();
+        all
+    }
+}
+
+/// The links in a block of text, one per line.
+///
+/// Blank lines and `#` comments are skipped, because a list somebody maintains by hand over months
+/// grows both — and yt-dlp's own `--batch-file` reads them the same way, so this is agreement rather
+/// than invention.
+#[must_use]
+pub fn urls_in(text: &str) -> Vec<String> {
+    let mut seen = Vec::new();
+    for line in text.lines() {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        if !seen.iter().any(|already| already == line) {
+            seen.push(line.to_owned());
+        }
+    }
+    seen
+}
+
+/// A urlencoded form body, parsed by hand.
+///
+/// Two fields at most and one of them a Windows path, which `serde_urlencoded` handles fine — this
+/// is here because `set_out` wants to tell "the field was empty" from "the field was not sent", and
+/// a `Deserialize` struct flattens both into the same `String`.
+struct Fields(Vec<(String, String)>);
+
+impl Fields {
+    fn parse(body: &str) -> Self {
+        Self(
+            body.split('&')
+                .filter_map(|pair| pair.split_once('='))
+                .map(|(key, value)| (decode(key), decode(value)))
+                .collect(),
+        )
+    }
+
+    fn one(&self, name: &str) -> Option<String> {
+        self.0
+            .iter()
+            .find(|(key, _)| key == name)
+            .map(|(_, value)| value.clone())
+    }
+}
+
+/// Percent-decoding, plus `+` for a space.
+fn decode(value: &str) -> String {
+    let bytes = value.as_bytes();
+    let mut out: Vec<u8> = Vec::with_capacity(bytes.len());
+    let mut index = 0;
+    while index < bytes.len() {
+        match bytes[index] {
+            b'+' => {
+                out.push(b' ');
+                index += 1;
+            }
+            b'%' if index + 2 < bytes.len() => {
+                let hex = std::str::from_utf8(&bytes[index + 1..index + 3]).unwrap_or("");
+                match u8::from_str_radix(hex, 16) {
+                    Ok(byte) => {
+                        out.push(byte);
+                        index += 3;
+                    }
+                    // A stray `%` in a path is likelier than a broken encoder, and dropping it
+                    // would silently change the path rather than fail.
+                    Err(_) => {
+                        out.push(b'%');
+                        index += 1;
+                    }
+                }
+            }
+            byte => {
+                out.push(byte);
+                index += 1;
+            }
+        }
+    }
+    String::from_utf8_lossy(&out).into_owned()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_list_skips_blanks_and_comments_and_repeats() {
+        let urls = urls_in(
+            "https://example.invalid/a\n\n# yesterday's\nhttps://example.invalid/b\n  \
+             https://example.invalid/a  \n",
+        );
+        assert_eq!(
+            urls,
+            vec![
+                "https://example.invalid/a".to_owned(),
+                "https://example.invalid/b".to_owned()
+            ]
+        );
+    }
+
+    /// The form body carries a Windows path, and percent-decoding it wrongly is how a folder ends
+    /// up half set.
+    #[test]
+    fn a_windows_path_survives_the_form_body() {
+        let fields = Fields::parse("path=D%3A%5Ctunes%5Ckaraoke&other=1");
+        assert_eq!(fields.one("path").as_deref(), Some(r"D:\tunes\karaoke"));
+        assert_eq!(fields.one("absent"), None);
+    }
+
+    #[test]
+    fn a_space_arrives_as_a_plus_or_as_a_percent() {
+        assert_eq!(decode("my+videos"), "my videos");
+        assert_eq!(decode("my%20videos"), "my videos");
+        assert_eq!(decode("100%"), "100%", "a stray percent is not a failure");
+    }
+
+    #[test]
+    fn a_run_is_described_in_one_line() {
+        let outcome = |fetched, all_playable| fetch::Outcome {
+            fetched,
+            completed: true,
+            all_playable,
+            stopped: false,
+        };
+
+        // The one this was got wrong on first: a 403 with nothing downloaded is not a folder that
+        // was already up to date, and saying so was a quiet lie.
+        let mut failed = outcome(0, true);
+        failed.completed = false;
+        assert!(summarize(&failed, false).contains("could not fetch anything"));
+        let mut partly = outcome(2, true);
+        partly.completed = false;
+        assert!(summarize(&partly, false).contains("reported a failure"));
+        assert_eq!(summarize(&outcome(1, true), false), "fetched 1 video");
+        assert_eq!(summarize(&outcome(3, true), false), "fetched 3 videos");
+        assert!(summarize(&outcome(2, false), false).contains("cannot be played"));
+        assert_eq!(summarize(&outcome(0, true), true), "nothing to fetch");
+        assert_eq!(summarize(&outcome(2, true), true), "would fetch 2 videos");
+
+        // A stopped run says so first, whatever else was true of it.
+        let mut stopped = outcome(1, true);
+        stopped.stopped = true;
+        assert_eq!(
+            summarize(&stopped, false),
+            "stopped — 1 video finished first"
+        );
+    }
+}

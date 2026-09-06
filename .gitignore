@@ -10,3 +10,7 @@ km-video-fetch-records.jsonl
 
 # Staged output. `task dist` writes it and `task clean` removes it; nothing here is ever committed.
 /dist
+
+# A scratch data directory for a run started from a session here, per the verification notes in
+# the README. Never the default one, which is the owner's own.
+/local

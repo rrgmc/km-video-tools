@@ -1,0 +1,59 @@
+{# One fetch's progress, self-replacing.
+
+   **It stops polling by being the last frame.** The `hx-get` is inside the `running` branch, so a
+   finished job's fragment is inert HTML rather than a request every second for the rest of the
+   session. Nothing has to switch the polling off, and a page reloaded mid-fetch picks the job back
+   up, because this renders from what the server knows rather than from anything the browser held. #}
+<div id="job"
+     {% match job %}{% when Some with (it) %}{% if it.running %}hx-get="/progress" hx-trigger="every 1s" hx-swap="outerHTML"{% endif %}{% when None %}{% endmatch %}>
+{% match job %}
+{% when Some with (it) %}
+  <section class="panel job">
+  {% if it.running %}
+    {# A total of zero means *not known yet*, never *nothing to do* — so the bar sweeps rather than
+       sitting at 0%, which reads as a program that failed to start. #}
+    <div class="progress {% if it.indeterminate() %}working{% endif %}">
+      <span style="width: {% if it.indeterminate() %}100{% else %}{{ it.percent }}{% endif %}%"></span>
+    </div>
+    <p class="phase">
+      <strong>{{ it.phase }}</strong>
+      {% match it.counted() %}
+      {% when Some with (count) %}&middot; {{ count }}
+      {% when None %}
+      {% endmatch %}
+      &middot; {{ it.elapsed_secs }}s
+      {% if it.stopping %}<span class="note">&middot; stopping after this video</span>{% endif %}
+    </p>
+    {% if !it.stopping %}
+    <form hx-post="/fetch/stop" hx-target="#job" hx-swap="outerHTML"
+          method="post" action="/fetch/stop">
+      <button type="submit" class="quiet">Stop</button>
+    </form>
+    {% endif %}
+  {% else %}
+    {% match it.error %}
+    {% when Some with (why) %}<div class="message bad">{{ why }}</div>
+    {% when None %}
+      {% match it.outcome %}
+      {% when Some with (said) %}<div class="message ok">{{ said }}</div>
+      {% when None %}
+      {% endmatch %}
+    {% endmatch %}
+    {# Fired once, on the last response the poll will ever receive. The poll replaces only this
+       div, so the list of what arrived would otherwise stay as it was when the fetch began. #}
+    <div hx-get="/results" hx-trigger="load" hx-target="#results" hx-swap="outerHTML"></div>
+  {% endif %}
+
+  {# yt-dlp's own words. In a terminal these are what somebody reads when a download fails, and
+     there is no terminal here — so they are kept, newest last, and folded away until wanted. #}
+  {% if !it.log.is_empty() %}
+  <details class="log" {% if it.log_matters() %}open{% endif %}>
+    <summary>What yt-dlp said</summary>
+    <pre>{% for line in it.log %}{{ line }}
+{% endfor %}</pre>
+  </details>
+  {% endif %}
+  </section>
+{% when None %}
+{% endmatch %}
+</div>

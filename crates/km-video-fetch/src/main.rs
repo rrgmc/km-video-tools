@@ -35,7 +35,7 @@ use std::process::ExitCode;
 
 use anyhow::{Result, bail};
 use clap::Parser;
-use km_video_core::{args, check, profile, run};
+use km_video_core::{args, fetch, run};
 
 /// Fetch video songs with yt-dlp, in the shape packaging wants them.
 #[derive(Debug, Parser)]
@@ -69,6 +69,10 @@ struct Cli {
     no_archive: bool,
 
     /// Take cookies from a browser, for material that needs an account.
+    ///
+    /// One of brave, chrome, chromium, edge, firefox, opera, safari, vivaldi or whale, optionally
+    /// with a profile after a colon — `firefox:work`. Close that browser first: Chrome and Edge
+    /// keep their cookie database locked while they are running.
     #[arg(long, value_name = "BROWSER")]
     cookies_from_browser: Option<String>,
 
@@ -107,9 +111,9 @@ struct Cli {
 
 /// Exit 2 means a file arrived that the machine cannot play, under `--strict`.
 ///
-/// A code of its own for the reason `km-wallpaper-pack` gives one to a failed contrast gate: a finding
-/// and a broken run are different things, and a script that treats them the same cannot tell "this
-/// download needs attention" from "yt-dlp is not installed".
+/// A code of its own rather than a plain failure: a finding and a broken run are different things,
+/// and a script that treats them the same cannot tell "this download needs attention" from "yt-dlp
+/// is not installed".
 const UNPLAYABLE: u8 = 2;
 
 fn main() -> ExitCode {
@@ -125,224 +129,181 @@ fn main() -> ExitCode {
 
 /// Runs the fetch, returning whether everything is acceptable.
 fn run() -> Result<bool> {
-    let mut cli = Cli::parse();
+    let cli = Cli::parse();
 
     if !cli.targets.is_empty() && cli.from_file.is_some() {
         bail!("give URLs or --from-file, not both");
     }
-    // **A folder is allowed to say what goes in it.** With nothing named on the command line, a
-    // `km-video-fetch.txt` in the destination is taken as the list — the same argument the archive
-    // beside it already makes: what to fetch *into this folder* is a fact about the folder, and one
-    // somebody maintains by hand over months rather than retypes.
-    //
-    // Said out loud, because a run that fetched forty videos nobody named must be able to say where
-    // the forty came from.
-    //
-    // An explicit `--from-file` wins, and URLs on the command line mean the file is not consulted at
-    // all — that is not the refusal above, which is about being told two things at once. Here
-    // somebody has said what they want and the folder's standing list is simply not what they asked
-    // for.
-    if cli.targets.is_empty() && cli.from_file.is_none() {
-        cli.from_file = args::Plan::folders_own_list(&cli.out);
-        match &cli.from_file {
-            Some(list) => eprintln!("reading {}", list.display()),
-            None => bail!(
-                "nothing to fetch — give a URL, or --from-file with a list of them, or put one in \
-                 {}",
-                cli.out.join(args::BATCH_NAME).display()
-            ),
-        }
-    }
 
-    let binary = run::binary(cli.yt_dlp.as_deref());
-    let version = run::version(&binary)?;
-    eprintln!("yt-dlp {version}");
-    if let Some(age) = run::age_in_days(&version, run::today())
-        && age > run::STALE_AFTER_DAYS
-    {
-        eprintln!(
-            "  warning: that is {age} days old. YouTube changes what it serves and yt-dlp follows; \
-             a stale copy fails in ways that look like a broken network."
-        );
-    }
-    run::ensure_ffmpeg()?;
-
-    // Made now rather than left to yt-dlp, because the archive and the record file both live in it
-    // and both are opened before the first download finishes.
-    std::fs::create_dir_all(&cli.out)?;
-
-    // yt-dlp is given the bare name and resolves it against `-P`; this is the same file, spelled so
-    // that it can be read back. Removed first, because a stale one from an interrupted run would
-    // otherwise be reported as this run's haul.
-    let records = args::Plan::records_path(&cli.out);
-    let _ = std::fs::remove_file(&records);
-
-    let plan = args::Plan {
-        targets: cli.targets.clone(),
-        from_file: cli.from_file.clone(),
-        playlist: cli.playlist,
-        out: cli.out.clone(),
-        limit: cli.limit,
-        archive: (!cli.no_archive).then(|| args::Plan::default_archive(&cli.out)),
-        cookies_from_browser: cli.cookies_from_browser.clone(),
-        subs: cli.subs,
-        format: cli.format.clone(),
-        sort: cli.sort.clone(),
-        dry_run: cli.dry_run,
+    let request = fetch::Request {
+        plan: args::Plan {
+            targets: cli.targets.clone(),
+            // An explicit `--from-file` wins, and URLs on the command line mean the folder's own
+            // list is not consulted at all — that fallback is [`fetch::fetch`]'s, and it says so
+            // when it takes it.
+            from_file: cli.from_file.clone(),
+            playlist: cli.playlist,
+            out: cli.out.clone(),
+            limit: cli.limit,
+            archive: (!cli.no_archive).then(|| args::Plan::default_archive(&cli.out)),
+            cookies_from_browser: cli.cookies_from_browser.clone(),
+            subs: cli.subs,
+            format: cli.format.clone(),
+            sort: cli.sort.clone(),
+            dry_run: cli.dry_run,
+            // Set by the request's `progress`; stated here only because the struct is exhaustive.
+            progress_lines: false,
+        },
+        yt_dlp: cli.yt_dlp.clone(),
+        normalize: cli.normalize,
+        // **The terminal is handed to yt-dlp**, which draws a better bar than anything this could
+        // rebuild from a pipe. The web UI is the caller that cannot do that.
+        progress: fetch::Progress::Terminal,
     };
 
-    let argv = args::argv(&plan);
-    if cli.show_command || cli.dry_run {
-        eprintln!("\n{}", command_line(&binary, &argv));
+    let mut reporter = Reporter {
+        show_command: cli.show_command || cli.dry_run,
+        dry_run: cli.dry_run,
+        normalizing: u8::MAX,
+    };
+    // The command line never stops of its own accord: the child owns the terminal, and Ctrl-C
+    // reaches yt-dlp directly.
+    let outcome = fetch::fetch(&request, |event| {
+        reporter.say(&event);
+        fetch::Flow::Go
+    })?;
+
+    if !outcome.all_playable && cli.strict {
+        eprintln!("\nat least one file cannot be played as it is; --normalize re-encodes them");
     }
-
-    eprintln!();
-    let completed = run::spawn(&binary, &argv)?;
-    let fetched = run::read_records(&records)?;
-    let _ = std::fs::remove_file(&records);
-
-    if !completed {
-        eprintln!("\nyt-dlp reported a failure; what did arrive is below.");
-    }
-
-    if cli.dry_run {
-        report_dry_run(&fetched);
-        return Ok(true);
-    }
-
-    let acceptable = report(&fetched, cli.normalize, cli.strict)?;
-    Ok(acceptable || !cli.strict)
+    Ok(outcome.all_playable || !cli.strict)
 }
 
-/// The command line, quoted enough to be pasted back into a shell.
-fn command_line(binary: &std::ffi::OsStr, argv: &[std::ffi::OsString]) -> String {
-    let mut line = quote(&binary.to_string_lossy());
-    for arg in argv {
-        line.push(' ');
-        line.push_str(&quote(&arg.to_string_lossy()));
-    }
-    line
+/// Turns what happened into what is printed, and holds the little state that needs.
+///
+/// **This is the whole of what makes this a command line rather than a page.** Every sentence the
+/// tool says is here; `km-video-core` decides nothing about wording, and the web UI renders the same
+/// events into HTML without either of them knowing about the other.
+struct Reporter {
+    /// Whether the yt-dlp command line is worth showing.
+    show_command: bool,
+    /// A dry run reports what *would* arrive, in a different shape and to stdout.
+    dry_run: bool,
+    /// The last re-encode percentage drawn, so the in-place line is only redrawn when it moves.
+    /// `u8::MAX` means none has been drawn and there is nothing to erase.
+    normalizing: u8,
 }
 
-/// Quotes one argument if it needs it.
-fn quote(value: &str) -> String {
-    if value.is_empty() || value.contains([' ', '"', '\'', '*', '?', '(', ')', '&', '|', '<', '>'])
-    {
-        format!("'{}'", value.replace('\'', r"'\''"))
-    } else {
-        value.to_owned()
-    }
-}
+impl Reporter {
+    fn say(&mut self, event: &fetch::Event) {
+        use fetch::Event as E;
+        match event {
+            E::ReadingList(list) => eprintln!("reading {}", list.display()),
 
-/// What a dry run found.
-fn report_dry_run(fetched: &[run::Record]) {
-    if fetched.is_empty() {
-        println!("nothing to fetch");
-        return;
-    }
-    println!("would fetch {}:", plural(fetched.len(), "video", "videos"));
-    for record in fetched {
-        match record.length() {
-            Some(length) => println!("  {}  ({length})", record.describe()),
-            None => println!("  {}", record.describe()),
-        }
-    }
-}
+            E::Tool {
+                version,
+                stale_days,
+            } => {
+                eprintln!("yt-dlp {version}");
+                if let Some(age) = stale_days
+                    && *age > run::STALE_AFTER_DAYS
+                {
+                    eprintln!(
+                        "  warning: that is {age} days old. YouTube changes what it serves and \
+                         yt-dlp follows; a stale copy fails in ways that look like a broken \
+                         network."
+                    );
+                }
+            }
 
-/// Checks and reports what arrived, returning whether all of it is playable.
-fn report(fetched: &[run::Record], normalize: bool, strict: bool) -> Result<bool> {
-    if fetched.is_empty() {
-        println!("nothing new — every url was already in the archive, or none produced a file");
-        return Ok(true);
-    }
+            E::Command(line) => {
+                if self.show_command {
+                    eprintln!("\n{line}");
+                }
+                // The blank line that separates this program's preamble from yt-dlp's own output,
+                // which starts the moment this event has been handled.
+                eprintln!();
+            }
 
-    println!("\nfetched {}:", plural(fetched.len(), "video", "videos"));
-    let mut all_playable = true;
+            // Only ever emitted under `Progress::Watched`, which this front end does not ask for:
+            // yt-dlp has the terminal and is drawing on it already.
+            E::Said(_) | E::Downloading { .. } => {}
 
-    for record in fetched {
-        let Some(path) = record.path() else {
-            println!("  {} — no file was written", record.describe());
-            continue;
-        };
-        let name = path.file_name().map_or_else(
-            || path.display().to_string(),
-            |name| name.to_string_lossy().into_owned(),
-        );
+            E::Downloaded { ok, fetched } => {
+                if !ok {
+                    eprintln!("\nyt-dlp reported a failure; what did arrive is below.");
+                }
+                match (*fetched, self.dry_run) {
+                    (0, true) => println!("nothing to fetch"),
+                    (0, false) => println!(
+                        "nothing new — every url was already in the archive, or none produced a \
+                         file"
+                    ),
+                    (count, true) => println!("would fetch {}:", plural(count, "video", "videos")),
+                    (count, false) => {
+                        println!("\nfetched {}:", plural(count, "video", "videos"));
+                    }
+                }
+            }
 
-        match inspect(&path, normalize) {
-            Ok(Some(line)) => println!("  {name}\n      {line}"),
-            Ok(None) => println!("  {name}"),
-            Err(Unplayable(line)) => {
-                all_playable = false;
-                println!("  {name}\n      {line}");
+            // Drawn in place and erased when it finishes, so a long re-encode says something
+            // without leaving a hundred lines behind. Only where there is a terminal to draw on:
+            // redirected to a file this would be a hundred lines behind.
+            E::Normalizing { percent, .. } => {
+                use std::io::IsTerminal;
+                if std::io::stderr().is_terminal()
+                    && *percent != self.normalizing
+                    && percent % 10 == 0
+                {
+                    self.normalizing = *percent;
+                    eprint!("      re-encoding {percent}%\r");
+                }
+            }
+
+            E::Arrived { record, verdict } => {
+                if self.normalizing != u8::MAX {
+                    eprint!("\r{:width$}\r", "", width = 28);
+                    self.normalizing = u8::MAX;
+                }
+                if self.dry_run {
+                    match record.length() {
+                        Some(length) => println!("  {}  ({length})", record.describe()),
+                        None => println!("  {}", record.describe()),
+                    }
+                    return;
+                }
+                match arrival(record, verdict) {
+                    (name, Some(line)) => println!("  {name}\n      {line}"),
+                    (name, None) => println!("  {name}"),
+                }
             }
         }
     }
-
-    if !all_playable && strict {
-        eprintln!("\nat least one file cannot be played as it is; --normalize re-encodes them");
-    }
-    Ok(all_playable)
 }
 
-/// A file the machine could not play.
-struct Unplayable(String);
+/// One arrived file as a name and, where there is something to say, a line about it.
+fn arrival(record: &run::Record, verdict: &fetch::Verdict) -> (String, Option<String>) {
+    use fetch::Verdict as V;
 
-/// Describes one downloaded file's shape, re-encoding it first when asked.
-fn inspect(path: &std::path::Path, normalize: bool) -> Result<Option<String>, Unplayable> {
-    let report = match check::inspect(path) {
-        Ok(report) => report,
-        // Not fatal, and not a lie either: the file is on disk and this could not read it. Said as
-        // a finding so the run goes on to the next one.
-        Err(error) => return Err(Unplayable(format!("could not be probed: {error:#}"))),
+    let Some(path) = record.path() else {
+        return (format!("{} — no file was written", record.describe()), None);
     };
+    let name = path.file_name().map_or_else(
+        || path.display().to_string(),
+        |name| name.to_string_lossy().into_owned(),
+    );
 
-    if report.in_profile() {
-        return Ok(Some("in profile — packaging will copy it".to_owned()));
-    }
-
-    let reasons: Vec<_> = report.mismatches.iter().map(ToString::to_string).collect();
-    let summary = reasons.join("; ");
-
-    if !normalize {
-        let line = if report.blocking() {
-            format!("cannot be played as it is: {summary}")
-        } else {
-            format!("outside the profile: {summary} — packaging will re-encode it")
-        };
-        return if report.blocking() {
-            Err(Unplayable(line))
-        } else {
-            Ok(Some(line))
-        };
-    }
-
-    match normalize_now(&report) {
-        Ok(()) => Ok(Some(format!("re-encoded into profile ({summary})"))),
-        Err(error) => Err(Unplayable(format!("re-encoding failed: {error:#}"))),
-    }
-}
-
-/// Re-encodes one file, drawing a progress line when there is a terminal to draw it on.
-fn normalize_now(report: &check::Report) -> Result<()> {
-    use std::io::IsTerminal;
-
-    let encoders = profile::encoders()?;
-    let interactive = std::io::stderr().is_terminal();
-    let mut last = u8::MAX;
-
-    check::normalize(report, &encoders, |progress| {
-        let percent = progress.percent();
-        if interactive && percent != last && percent % 10 == 0 {
-            last = percent;
-            eprint!("      re-encoding {percent}%\r");
-        }
-    })?;
-
-    if last != u8::MAX {
-        eprint!("\r{:width$}\r", "", width = 28);
-    }
-    Ok(())
+    let line = match verdict {
+        V::InProfile => Some("in profile — packaging will copy it".to_owned()),
+        V::Outside { summary } => Some(format!(
+            "outside the profile: {summary} — packaging will re-encode it"
+        )),
+        V::Unplayable { summary } => Some(format!("cannot be played as it is: {summary}")),
+        V::Normalized { summary } => Some(format!("re-encoded into profile ({summary})")),
+        V::Unreadable { why } => Some(format!("could not be probed: {why}")),
+        V::NotFetched => None,
+    };
+    (name, line)
 }
 
 /// `1 video` / `2 videos`.
@@ -452,20 +413,6 @@ mod tests {
         assert_eq!(args::Plan::folders_own_list(&other), None);
 
         let _ = std::fs::remove_dir_all(&dir);
-    }
-
-    #[test]
-    fn a_pasteable_command_line_quotes_what_needs_it() {
-        let line = command_line(
-            std::ffi::OsStr::new("yt-dlp"),
-            &[
-                std::ffi::OsString::from("-f"),
-                std::ffi::OsString::from("bv*[height<=1080]+ba/b"),
-                std::ffi::OsString::from("-P"),
-                std::ffi::OsString::from("my videos"),
-            ],
-        );
-        assert_eq!(line, "yt-dlp -f 'bv*[height<=1080]+ba/b' -P 'my videos'");
     }
 
     #[test]

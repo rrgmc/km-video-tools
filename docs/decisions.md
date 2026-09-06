@@ -63,21 +63,172 @@ In karaokemachine the whole check-and-normalize half sat behind a default-off `v
 because reaching the profile meant linking ffmpeg. A build without the feature downloaded exactly as
 well and simply could not say whether what landed was playable.
 
-With `ffprobe` there is nothing to gate, so **there are no features in this workspace at all** and
-the tool's third reason to exist is always available.
+With `ffprobe` there is nothing to gate, so **the check is never behind a feature** and the tool's
+third reason to exist is always available.
+
+The workspace does have one feature — `km-video-downloader/desktop`, which is its window — and it is
+on by default. That is a different kind of thing: it decides what a program *is*, not whether it can
+answer a question it was asked.
 
 ## A binary crate here is a command line and its output
 
-The repository is laid out as a workspace holding several programs — a local web UI over the same
-fetch is the second one planned — so everything worth reusing lives in `km-video-core`, and a binary
-crate holds argument parsing and printing.
+The repository is laid out as a workspace holding several programs, so everything worth reusing lives
+in `km-video-core`, and a binary crate holds argument parsing and printing.
 
 Every `println!` in `km-video-fetch` is in its `main.rs`; nothing in `km-video-core` prints at all.
 The boundary is *does it parse or produce a user interface*, which is why `km-video-core` does not
-depend on `clap`.
+depend on `clap` and `km-video-downloader` does not depend on `km-video-fetch`.
 
 `members = ["crates/*"]` follows from the same decision: a new program is a new directory and nothing
 else.
+
+## The whole fetch is a library function that narrates
+
+`km_video_core::fetch::fetch(&Request, on_event)` runs the sequence — preflight, argv, spawn, read
+back, check, re-encode — and calls back as it goes. `km-video-fetch` renders those events as lines;
+`km-video-downloader` renders them as a progress bar and a list.
+
+**This was the rule above being tested for the first time, and it did not hold.** All of that
+sequence used to live in `km-video-fetch`'s own `run()`, interleaved with the printlns reporting it —
+a perfectly good shape until a second front end wanted the same sequence, at which point it was
+unreusable, because a web page cannot call a function that prints.
+
+Two consequences worth stating, because they are what keeps the two faces honest:
+
+- **The events are a narration, not a state machine.** They arrive in the order things happen and
+  each is complete in itself. A caller that ignores every one of them still gets the `Outcome`.
+- **`km-video-core` decides no wording.** Every sentence a person reads is in the crate that shows
+  it, which is why the command line's output could move without changing a word of it.
+
+The line sink also returns a `Flow`, which is how Stop reaches a running fetch. That is a second job
+for a closure already being called at every point where stopping is possible — as against a flag the
+library would have to be handed and remember to read.
+
+## yt-dlp keeps the terminal where there is one, and is piped where there is not
+
+`run::spawn` inherits stdout and stderr, so yt-dlp draws its own progress bar. It is a better bar
+than anything reconstructed from a pipe, and there is no pipe to deadlock on.
+
+`run::spawn_watched` pipes, because a page has no terminal to hand over. It answers the deadlock the
+module header warns about the same way `profile::transcode` does — **stderr on a thread of its own,
+stdout on the caller's** — which also keeps the line sink off any thread but the caller's, so it
+needs no `Send` bound. The cost is that stderr arrives in a block at the end; with `--newline` in
+effect nearly everything is on stdout, and what stderr carries is the errors, which is the part read
+afterwards anyway.
+
+Watched mode also asks yt-dlp for `--progress-template`, whose output is parseable where its bar is
+not. Both directions are tested: the template in a terminal run would replace a good bar with a wall
+of text, and a missing one in a watched run leaves a page with a bar that never moves.
+
+## Progress is polled, not pushed
+
+`hx-get="/progress" hx-trigger="every 1s"`, with **the polling attributes emitted only inside the
+`running` branch** — so the last frame ends the loop by being the last frame. Nothing has to switch
+polling off, and a page reloaded mid-fetch picks the job back up, because the fragment renders from
+what the server knows rather than from anything the browser held.
+
+Server-sent events would be the alternative and are not worth it here: they earn their keep pushing
+sub-second state to several open pages at once, and this is one page watching one job whose fastest
+meaningful change is about twice a second. The polling version is a template and no client code.
+
+## The page is light, and says so
+
+Its models in karaokemachine — `km-package-builder`, `km-admin`, the machine's own screen — are dark,
+because they sit beside an appliance in a dark room. This is a tool used at a desk in the daytime and
+it belongs to a different repository, so it leads with white.
+
+**`color-scheme: light` is declared, and is not `light dark`.** A scheme left open lets the browser
+draw form controls from the other one, which is how a light page ends up with dark dropdowns. There
+is no `prefers-color-scheme` block: this program has one appearance and states it.
+
+## It is an application with a window, not a program that prints an address
+
+**This reverses the first decision made about it**, which was that a browser tab would be the whole
+user interface — on the grounds that km-admin's `desktop` feature wants `km-tray`, `km-console`,
+`km-osopen` and `km-logfile`, all karaokemachine crates. That was true of two of them and wrong
+about what it cost: double-clicking the executable opened a console showing an address, which is not
+an application. Of the four, the tray is genuinely optional, `opener.rs` replaces one in fifteen
+lines, and the console shim is replaced by [`say`] not being `println!` (below).
+
+So `desktop` is a feature and it is **on by default**, because the point of a default is what
+somebody gets without knowing there was a choice. `--no-default-features` still builds the
+browser-only program, which is what a Linux machine without libwebkit2gtk needs: `wry` links it at
+load time, so a build carrying the feature does not *start* there — a failure in the dynamic loader,
+before `main`, that no flag can rescue.
+
+The window is a **webview over the page this same process is serving**, which is the arrangement all
+three of karaokemachine's do: one set of templates answers for the window and for a browser tab
+alike, so there is never a second front end to keep in step. `--browser` asks for the tab.
+
+## `println!` is a crash in a GUI-subsystem executable
+
+`std::io::_print` **panics** on a write failure — `failed printing to stdout` — and a
+GUI-subsystem executable on Windows has a null standard output handle that fails every write. Left
+as `println!`, every double-click would abort the process, and it would never once fail when run
+from a shell, which is where it would have been tested.
+
+`say()` writes and drops the error. There is nowhere to report an error about there being nowhere to
+report.
+
+## Two executables, because the subsystem is a link-time field
+
+`km-video-downloader.exe` is GUI-subsystem so no console appears beside the application;
+`km-video-downloader-console.exe` is the same library, console-subsystem, for a shell that wants
+`--help` and the address. A program cannot choose at run time — the subsystem is a field in the PE
+header fixed by the linker — so it is two binaries or it is neither.
+
+## The icon is the same drawing under a fifth palette
+
+Angular bands, a near-black plate, `KM` with a coloured M: karaokemachine's mark, because these
+programs are run beside its and belong to it. **A vermilion lead**, chosen by hue distance rather
+than by taste: its four sit at 45°, 148°, 196° and 324°, and this is 11° — 34° clear of the
+nearest. The first attempt, a cyan at 180°, was 16° from the package builder's blue, which is
+exactly the confusion a per-program palette exists to prevent.
+
+The other opening, around 260°, is a violet and is refused: the tile's own ground is a deep violet
+and its middle band a magenta, so a violet lead would make the whole icon one hue with nothing to
+catch at 16 pixels.
+
+`crates/km-video-downloader/examples/icon.rs` draws it and writes `icon/`. Its geometry is a copy of
+that repository's renderer, which reads colours out of `km_display::theme::Theme` and types out of
+SDL, neither reachable from here. **The copy can drift and that is fine**: these are different
+programs' icons and are supposed to differ.
+
+The `.ico` goes inside the Windows executable through `build.rs`, which is the only way Explorer,
+the Start menu and the taskbar have an icon *before* the process starts. The `.icns` is written
+without `iconutil`, so a macOS bundle can be staged from any machine.
+
+## An unknown cookie browser is refused before anything is downloaded
+
+`--cookies-from-browser frefox` is **not** a usage error yt-dlp turns down at the door. It starts,
+extracts, and fails on the first video with a message that reads like the site said no. So
+`args::COOKIE_BROWSERS` writes the nine down and `args::browser_is_known` checks the part before
+`+`, `:` and `::` — the browser, never the profile, which is a name on somebody's own machine that
+nothing here could know.
+
+Checked in two places on purpose: the page refuses it as a form problem, with its own words and
+before a job exists, and `fetch()` refuses it as a command it knows cannot work. The second is the
+backstop and is what the command line gets.
+
+The field is an `input` with a `datalist` rather than a `select`, because the full syntax is
+`BROWSER[+KEYRING][:PROFILE][::CONTAINER]` and somebody with two Firefox profiles has to be able to
+say which. The list offers the nine; the field accepts the rest.
+
+## The folder picker is a server-side listing
+
+**A browser will not tell a page where a picked file lives** — a file input gives contents, not
+locations, and that is a security property rather than an oversight. There is no folder input at all.
+So the listing is done on this side: the server reads a directory, the page draws it, a click asks
+for the next one.
+
+That grants nothing new. The program is on loopback, it already writes files wherever it is pointed,
+and it runs as whoever started it.
+
+Deliberately **not** a native dialog, which would mean a GUI toolkit on every platform for one
+interaction in a program whose interface is otherwise a page.
+
+The picked *file* of links is the other half of the same fact, read the other way round: what the
+browser sends is the file's bytes, and the bytes are all that is wanted.
 
 ## No `rust-toolchain.toml`
 

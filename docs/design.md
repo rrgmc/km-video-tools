@@ -57,11 +57,42 @@ The fix is one line and reads like a triviality without the reason attached: the
 *not* affected — that argument is an ordinary path — which is why it keeps its dot and stays hidden.
 **Two tests assert exactly that asymmetry.**
 
-## Progress is not piped
+## Progress is not piped, except where it must be
 
 yt-dlp keeps the terminal and draws its own; only the machine-readable half goes to the record file.
 That removes outright the failure a piped child would bring — **a child filling a pipe nobody is
 draining** — which is the failure the ffmpeg call in `profile.rs` has to spawn a thread to avoid.
+
+**A web page has no terminal to hand over**, so `run::spawn_watched` pipes after all, and answers
+that paragraph rather than benefiting from it: stderr is drained by a thread of its own and stdout
+read on the caller's. It also asks yt-dlp for a second, parseable progress stream:
+
+```
+--newline  --progress-delta 0.5
+--progress-template "download:KMP status=%(progress.status)s pct=%(progress._percent_str)s
+                     speed=%(progress._speed_str)s eta=%(progress._eta_str)s title=%(info.title)s"
+```
+
+which produces, verbatim:
+
+```
+KMP status=downloading pct=  2.4% speed= Unknown B/s eta=Unknown title=in-profile
+KMP status=downloading pct= 49.4% speed=  20.49MiB/s eta=00:12 title=in-profile
+KMP status=finished    pct=100.0% speed=16.57MiB/s   eta=NA      title=in-profile
+```
+
+**Four things the parser must survive, every one of them in those three lines:**
+
+- **The values are space-padded to a fixed width.** `pct=  2.4%` split on its first space is an empty
+  string, which parses as nothing and leaves a bar that never moves. This is the one that bit.
+- **`Unknown` and `NA` are ordinary values**, not faults: speed is unknown for the first second of
+  every download, and eta is `NA` on the line that says a file is done. Both become `None`.
+- **`status=finished` ends one file, not the run.** A playlist emits it once per video.
+- **The title is last in the template precisely so it may contain anything**, spaces and `=`
+  included, so the fields are cut from the front by name rather than split apart.
+
+Anything without the `KMP` prefix is yt-dlp talking to a person, and is passed through as such — that
+is what fills the log the page keeps beside the bar.
 
 ## Preflight
 

@@ -1,0 +1,148 @@
+{% extends "layout.html" %}
+
+{% block content %}
+
+{# ---- 1. Where the files go ------------------------------------------------------------------ #}
+<section class="panel">
+  <h2>Where the videos go</h2>
+
+  {% if out.is_empty() %}
+  <p class="note">Nothing set yet. Type a path below, or browse for one.</p>
+  {% else %}
+  <p class="chosen">
+    <code>{{ out }}</code>
+    {% if out_exists %}
+      {% match out_videos %}
+      {% when Some with (count) %}<span class="tag">{{ count }} video files</span>
+      {% when None %}
+      {% endmatch %}
+    {% else %}
+    {# Not an error. The folder is made on the first fetch — but saying so beats a silent surprise
+       when somebody expected to be fetching into a folder that already had things in it. #}
+    <span class="tag warn">not there yet — it will be created</span>
+    {% endif %}
+  </p>
+  {% endif %}
+
+  <form class="by-path" hx-post="/out" hx-target="body" hx-swap="outerHTML">
+    <input type="text" name="path" value="{{ out }}" size="60" placeholder="a folder for the videos"
+           aria-label="the folder videos go into">
+    <button type="submit">Use this folder</button>
+  </form>
+
+  {# Collapsed until pressed. A browser cannot hand a page a folder path — a file input gives
+     contents, not locations — so the listing happens on this side. See src/browse.rs. #}
+  <div id="listing">
+    <button class="link" hx-get="/browse" hx-target="#listing" hx-swap="innerHTML">
+      Browse this computer&hellip;
+    </button>
+  </div>
+</section>
+
+{# ---- 2 and 3. What to fetch, and how ---------------------------------------------------------- #}
+{# One form, and `hx-encoding` **and** `enctype` both, deliberately: htmx does not read the form's
+   own enctype, and without the attribute a picked file is sent URL-encoded as its filename. The
+   plain attributes are the fallback for a page whose script did not load. #}
+<form class="panel fetch" hx-post="/fetch" hx-encoding="multipart/form-data"
+      hx-target="#job" hx-swap="outerHTML"
+      method="post" action="/fetch" enctype="multipart/form-data">
+  <h2>What to fetch</h2>
+
+  <label class="field">
+    <span>Links, one per line</span>
+    <textarea name="urls" rows="6" spellcheck="false"
+              placeholder="https://&hellip;&#10;https://&hellip;"></textarea>
+  </label>
+
+  <div class="sources">
+    <label class="field">
+      <span>&hellip;or a file of them</span>
+      <input type="file" name="list" accept=".txt,text/plain">
+    </label>
+
+    {% match own_list %}
+    {% when Some with (list) %}
+    <label class="check">
+      <input type="checkbox" name="own_list" value="{{ list }}" checked>
+      <span>
+        Also the {{ own_list_count }} link{% if own_list_count != 1 %}s{% endif %} this folder
+        carries for itself
+        <small>{{ list }}</small>
+      </span>
+    </label>
+    {% when None %}
+    {% endmatch %}
+  </div>
+
+  <h3>How</h3>
+  <div class="options">
+    <label class="check">
+      <input type="checkbox" name="playlist" {% if playlist %}checked{% endif %}>
+      <span>Take the whole playlist
+        <small>Off, a link from a playlist page fetches only that one video.</small></span>
+    </label>
+
+    <label class="check">
+      <input type="checkbox" name="normalize" {% if normalize %}checked{% endif %}>
+      <span>Re-encode anything outside the profile
+        <small>Fixes a file the machine could not play. Costs minutes to hours per song.</small>
+      </span>
+    </label>
+
+    <label class="check">
+      <input type="checkbox" name="subs" {% if subs %}checked{% endif %}>
+      <span>Mux subtitles in
+        <small>The machine does not read them; this only changes the file.</small></span>
+    </label>
+
+    <label class="check">
+      <input type="checkbox" name="no_archive">
+      <span>Fetch things already in the archive again
+        <small>Not remembered — it is a thing you do once.</small></span>
+    </label>
+
+    <label class="check">
+      <input type="checkbox" name="dry_run">
+      <span>Say what would be fetched, and fetch nothing
+        <small>Not remembered, for the same reason.</small></span>
+    </label>
+
+    <label class="field small">
+      <span>At most this many from a playlist</span>
+      <input type="number" name="limit" min="1" value="{{ limit }}" placeholder="no limit">
+    </label>
+
+    {# A list rather than a bare text box, because a misspelt browser is not a usage error yt-dlp
+       refuses up front — it is an extraction error raised after the download has begun, and it
+       reads like the site said no. Still an `input`, not a `select`: the full syntax is
+       `BROWSER[+KEYRING][:PROFILE][::CONTAINER]`, and somebody with two Firefox profiles needs to
+       be able to say which. The datalist offers the nine; the field accepts the rest. #}
+    <label class="field wide">
+      <span>Take cookies from a browser</span>
+      <input type="text" name="cookies_from_browser" value="{{ cookies_from_browser }}"
+             list="browsers" placeholder="none" spellcheck="false" autocapitalize="off">
+      <datalist id="browsers">
+        {% for browser in browsers %}<option value="{{ browser }}"></option>{% endfor %}
+      </datalist>
+      <small>
+        For material that needs an account. Close that browser first — Chrome and Edge keep their
+        cookie database locked while they are running. Add a profile after a colon
+        (<code>firefox:work</code>) where you have more than one.
+      </small>
+    </label>
+  </div>
+
+  <p class="go"><button type="submit" class="primary">Fetch</button></p>
+</form>
+
+{# ---- 4. What is happening, and what arrived --------------------------------------------------- #}
+{% include "_job.html" %}
+{% include "_results.html" %}
+
+<p class="footnote">
+  What this fetches, and from where, is your business. It runs
+  <a href="https://github.com/yt-dlp/yt-dlp">yt-dlp</a> against whatever you point it at; downloading
+  from a site may be contrary to that site's terms, and the videos are somebody else's work.
+</p>
+
+{% endblock %}

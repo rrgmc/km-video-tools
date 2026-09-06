@@ -27,6 +27,48 @@ clap = { version = "4.6.6", features = ["derive"] }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
 
+# The web UI's half. Every version here is the one karaokemachine pins for the same crate, so a
+# person moving between the two repositories meets one axum and one askama rather than two.
+#
+# **No `ws` on axum and no `tower-http` at all.** The first is for a push channel this does not have;
+# the second was how the package builder used to serve its static files, and it removed it — one
+# executable, no folder, nothing to lose. `tower` is a dev-dependency only, for driving the router
+# through `oneshot` in a test without binding a socket.
+axum = { version = "0.8.9", features = ["multipart"] }
+# `serde_json` is what gives askama the `json` filter, and that filter is load-bearing rather than a
+# convenience: a Windows path inside an `hx-vals` attribute must be serialized in Rust, because the
+# HTML escaper leaves backslashes alone and `D:\tunes` is not valid JSON. See `static/README.md`.
+askama = { version = "0.16.0", features = ["serde_json"] }
+tokio = { version = "1.53.1", features = [
+    "rt-multi-thread",
+    "macros",
+    "net",
+    "signal",
+    "sync",
+    "time",
+] }
+directories = "6.0.0"
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
+tower = "0.5.3"
+
+# The window. `tao` opens it and owns the main thread; `wry` puts the platform's own webview in it
+# and points that at the loopback URL the program is already serving — so there is one set of
+# templates answering for the window and for a browser tab alike.
+#
+# **`muda` is macOS's alone**, and is a real need rather than a decoration: on that platform ⌘Q is a
+# key equivalent on the *application menu* and not a key the window is sent, so a shell with no menu
+# bar cannot be quit with the keyboard — nor can its fields be copied and pasted into. `tao` never
+# makes one.
+wry = "0.56.1"
+tao = "0.37.0"
+muda = "0.19.3"
+
+# The application icon, inside the Windows executable where Explorer and the taskbar can read it
+# before the process starts, and the generator that draws it.
+winresource = "0.1.31"
+image = { version = "0.25.10", default-features = false, features = ["png", "ico"] }
+
 # `missing_docs` is load-bearing rather than a matter of taste: every item in this code carries a doc
 # comment *because of this lint*, and the comments are where the reasoning is. Turning it off would
 # not delete them, it would let them rot.

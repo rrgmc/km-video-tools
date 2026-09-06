@@ -1,0 +1,27 @@
+{# The chrome. Nothing here is fetched from a network: see static/README.md. #}
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}{{ app_name }}{% endblock %}</title>
+<link rel="icon" type="image/svg+xml" href="/static/icon.svg">
+<link rel="stylesheet" href="/static/style.css">
+<script src="/static/htmx.min.js" defer></script>
+<script src="/static/ui.js" defer></script>
+</head>
+<body>
+<header class="bar">
+  <h1>{{ app_name }}</h1>
+  <p class="tagline">yt-dlp, in the shape a karaoke package wants</p>
+</header>
+
+<main>
+{% block content %}{% endblock %}
+</main>
+
+{# Filled by ui.js. Every failure this program can produce is a sentence written for a person, and
+   htmx will not swap a non-2xx response — so without this tray they would all be invisible. #}
+<div id="toasts" aria-live="polite"></div>
+</body>
+</html>
