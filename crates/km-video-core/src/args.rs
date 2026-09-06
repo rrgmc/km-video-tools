@@ -1,0 +1,553 @@
+//! The yt-dlp command line, and why it is the one it is.
+//!
+//! This module builds an argv and spawns nothing, deliberately splitting choosing the arguments
+//! from running them: the interesting part of this tool is *which* arguments it passes, and that
+//! can only be asserted in a test if choosing them is separable from running them.
+//!
+//! # What the arguments are for
+//!
+//! One thing, mostly: land a file that [`crate::profile::DEFAULT`] already accepts, so packaging
+//! copies its bytes instead of spending an hour re-encoding a picture it can only make worse. That
+//! profile is H.264 in 8-bit 4:2:0, at most 1080p30, with AAC, in MP4 — and a YouTube download asked
+//! for AVC and AAC is exactly that, which is the whole reason the probe-first design in
+//! [`crate::profile`] works at all. Asking for it up front is free; discovering afterwards that
+//! VP9 arrived is not.
+//!
+//! # Three things deliberately *not* passed
+//!
+//! * **`--embed-thumbnail`.** In MP4 yt-dlp attaches cover art as a second video stream carrying
+//!   `attached_pic`. A reader that takes the first video stream it finds then describes the JPEG
+//!   rather than the picture. [`crate::probe`] skips such a stream, and this refuses to create the
+//!   situation in the first place â two guards, because a file fetched by other means can still
+//!   arrive carrying one. It buys nothing here, since the machine never shows cover art.
+//! * **`--embed-subs`.** It muxes a `mov_text` stream, and the `Searching a video's words` decision
+//!   in karaokemachine is that the project does not index a video's captions. Available behind
+//!   `--subs` for anyone who later wants them; off is the default because it changes the shape of
+//!   the file for no benefit the machine can currently use.
+//! * **`--restrict-filenames`.** It strips names to ASCII, and the material this exists for is
+//!   Japanese and Korean. A stem is the title of last resort, and mangling it is worse than a long
+//!   one. `--windows-filenames` handles the characters that actually break a path.
+
+use std::ffi::OsString;
+use std::path::{Path, PathBuf};
+
+/// The formats to consider: anything, provided the picture is no taller than 1080.
+///
+/// A ceiling rather than a preference, because 4K of a karaoke caption is disk spent on nothing the
+/// appliance can show. Everything else is left to [`SORT`], which degrades instead of failing.
+pub const FORMAT: &str = "bv*[height<=1080]+ba/b[height<=1080]/bv*+ba/b";
+
+/// How to rank what [`FORMAT`] allowed.
+///
+/// Sorting rather than a longer `-f` fallback chain, and the difference matters: a chain that runs
+/// out of alternatives fails the download, whereas a sort takes the nearest thing available and
+/// lets the shape check afterwards say what was settled for. A song that arrived as VP9 is still a
+/// song; a song that did not arrive is not.
+pub const SORT: &str = "vcodec:h264,acodec:aac,res:1080,fps:30,ext:mp4:m4a";
+
+/// `Artist - Title.mp4`, or `Title.mp4` when nothing knows an artist.
+///
+/// `%(FIELD&{} - |)s` is yt-dlp's conditional: emit `{} - ` with the field substituted when it has
+/// one, and the empty default otherwise. Written this way rather than as `%(artist)s - %(title)s`
+/// because the latter names a file `NA - Title.mp4` or ` - Title.mp4` depending on the version, and
+/// the stem is the title of last resort — it has to be right when the tags are the thing that is
+/// missing.
+pub const OUTPUT_TEMPLATE: &str =
+    "%(artist,album_artist,creator,uploader&{} - |)s%(track,title)s.%(ext)s";
+
+/// The fields recorded per download, as one JSON object per line.
+///
+/// `after_move:` fires once the file has reached its final name, which is the only moment
+/// `filepath` is worth writing down. The `%(.{…})j` form asks for a subset as JSON rather than the
+/// whole info dict, which for a playlist is megabytes of thumbnails and format tables nothing here
+/// reads.
+pub const RECORD_TEMPLATE: &str = "after_move:%(.{id,filepath,artist,album_artist,creator,uploader,track,title,webpage_url,duration})j";
+
+/// The same, for a run that is only pretending.
+///
+/// No `after_move:` prefix — that stage never happens under `--simulate` — and no `filepath`, since
+/// nothing will be written. Kept in step with [`RECORD_TEMPLATE`] by a test.
+pub const SIMULATE_TEMPLATE: &str =
+    "%(.{id,artist,album_artist,creator,uploader,track,title,webpage_url,duration})j";
+
+/// What the download archive is called, inside the destination folder.
+///
+/// Beside the videos rather than in a config directory, because the archive is a fact about *this
+/// folder* — which songs are already in it — and a folder copied to another machine should carry
+/// that with it.
+pub const ARCHIVE_NAME: &str = ".km-fetched.txt";
+
+/// What the record file is called, **relative to the destination**.
+///
+/// Three properties, each of which was arrived at the hard way, because `--print-to-file`'s file
+/// argument is put through yt-dlp's output-template machinery rather than taken as a path:
+///
+/// * **Relative, so `-P` resolves it.** Given a long *absolute* path, `--trim-filenames` shortens it
+///   by dropping directory components — the record file was written one folder above the videos, and
+///   the run then reported that it had fetched nothing at all, because that is where it looked.
+/// * **No leading dot.** Sanitisation strips one, so `.records.jsonl` is written as `records.jsonl`
+///   and a tool looking for the name it asked for finds nothing. It would rather be a hidden file;
+///   it cannot be, so it is deleted as soon as it has been read instead.
+/// * **`km-video-fetch-` in the name**, because for the moment between the download finishing and
+///   the summary printing it does sit in somebody's folder of songs, and an interrupted run leaves
+///   it there. It should say whose it is.
+///
+/// Unlike [`ARCHIVE_NAME`], which reaches `--download-archive` — an ordinary path argument that is
+/// neither trimmed nor sanitised, and so keeps its dot and stays hidden.
+pub const RECORDS_NAME: &str = "km-video-fetch-records.jsonl";
+
+/// The list of URLs a folder can carry for itself.
+///
+/// **The third fact a destination folder is allowed to hold about itself**, beside [`ARCHIVE_NAME`]
+/// and [`RECORDS_NAME`], and the same argument covers it: what to fetch *into this folder* belongs
+/// with the folder, and a folder copied to another machine should carry it.
+///
+/// **Named rather than hidden**, unlike the archive: this one is a file somebody writes and edits by
+/// hand, and a leading dot would make it invisible in exactly the file manager they would edit it
+/// from. It says whose it is for `RECORDS_NAME`'s third reason.
+pub const BATCH_NAME: &str = "km-video-fetch.txt";
+
+/// Pushes one plain-text argument.
+///
+/// A macro rather than a closure because the argv is built from a mixture of `&str` literals and
+/// owned `OsString`s made from paths, and a closure holding a mutable borrow of the vector locks
+/// out every direct `push` in between.
+macro_rules! flag {
+    ($args:ident, $value:expr) => {
+        $args.push(OsString::from($value))
+    };
+}
+
+/// Everything the argv depends on.
+#[derive(Debug, Clone)]
+pub struct Plan {
+    /// URLs to fetch. Empty when [`Plan::from_file`] is set.
+    pub targets: Vec<String>,
+    /// A file of URLs, one per line.
+    pub from_file: Option<PathBuf>,
+    /// Expand a playlist rather than taking the one video from it.
+    pub playlist: bool,
+    /// Where the files go.
+    pub out: PathBuf,
+    /// At most this many items from a playlist.
+    pub limit: Option<u32>,
+    /// Where already-fetched ids are remembered, when they are.
+    pub archive: Option<PathBuf>,
+    /// A browser to take cookies from, for material that needs an account.
+    pub cookies_from_browser: Option<String>,
+    /// Mux subtitles into the file.
+    pub subs: bool,
+    /// Replace [`FORMAT`].
+    pub format: Option<String>,
+    /// Replace [`SORT`].
+    pub sort: Option<String>,
+    /// Ask what would happen and download nothing.
+    pub dry_run: bool,
+}
+
+impl Plan {
+    /// The archive path a plan uses by default, given its destination.
+    #[must_use]
+    pub fn default_archive(out: &Path) -> PathBuf {
+        out.join(ARCHIVE_NAME)
+    }
+
+    /// Where [`RECORDS_NAME`] will actually land, which is what the caller reads back.
+    #[must_use]
+    pub fn records_path(out: &Path) -> PathBuf {
+        out.join(RECORDS_NAME)
+    }
+
+    /// The list a destination folder carries for itself, if it carries one.
+    ///
+    /// `None` where the folder has no such file — including where the folder does not exist yet,
+    /// which is an ordinary first run and not a fault.
+    #[must_use]
+    pub fn folders_own_list(out: &Path) -> Option<PathBuf> {
+        let path = out.join(BATCH_NAME);
+        path.is_file().then_some(path)
+    }
+}
+
+/// Builds the whole yt-dlp command line, less the binary itself.
+#[must_use]
+pub fn argv(plan: &Plan) -> Vec<OsString> {
+    let mut args: Vec<OsString> = Vec::new();
+
+    // Stated rather than inferred. yt-dlp's own default for a URL carrying `&list=` is to take the
+    // whole playlist and warn about it, so somebody who pasted a link from a playlist page gets two
+    // hundred songs they did not ask for. Here it is always one of the two, and always because it
+    // was chosen.
+    flag!(
+        args,
+        if plan.playlist {
+            "--yes-playlist"
+        } else {
+            "--no-playlist"
+        }
+    );
+
+    flag!(args, "-f");
+    flag!(args, plan.format.as_deref().unwrap_or(FORMAT));
+    flag!(args, "-S");
+    flag!(args, plan.sort.as_deref().unwrap_or(SORT));
+
+    // Both needed, and they are not the same thing: the first says what container to mux the
+    // separate video and audio streams into, the second says what to do when the result still is
+    // not MP4. `--remux-video` is a stream copy — it rewrites the container and never the picture.
+    flag!(args, "--merge-output-format");
+    flag!(args, "mp4");
+    flag!(args, "--remux-video");
+    flag!(args, "mp4");
+
+    // The point of the whole exercise. `--embed-metadata` writes the container tags that
+    // [`crate::probe`] reads back, so a video arrives in curation already knowing what it is; the
+    // two `--parse-metadata` rules are what fills those tags in when the extractor reported the
+    // song as a plain YouTube upload rather than as music.
+    flag!(args, "--embed-metadata");
+    flag!(args, "--parse-metadata");
+    flag!(args, "%(track,title)s:%(meta_title)s");
+    flag!(args, "--parse-metadata");
+    flag!(
+        args,
+        "%(artist,album_artist,creator,uploader)s:%(meta_artist)s"
+    );
+
+    if plan.subs {
+        flag!(args, "--embed-subs");
+    }
+
+    flag!(args, "-o");
+    flag!(args, OUTPUT_TEMPLATE);
+
+    // Forced on every platform, not only Windows. A corpus is fetched on one machine and packaged
+    // on another — this box and the appliance — and a file that is named one thing here and another
+    // thing there is a song whose stem, and therefore whose title, depends on where it landed.
+    flag!(args, "--windows-filenames");
+    flag!(args, "--trim-filenames");
+    flag!(args, "120");
+
+    flag!(args, "--no-overwrites");
+    flag!(args, "--continue");
+    flag!(args, "-N");
+    flag!(args, "4");
+    flag!(args, "--retries");
+    flag!(args, "10");
+    flag!(args, "--fragment-retries");
+    flag!(args, "10");
+
+    // Politeness, and self-interest: a playlist fetched flat out is how an address starts being
+    // asked for a captcha, and a throttled download is slower than a paced one.
+    flag!(args, "--sleep-requests");
+    flag!(args, "1");
+    flag!(args, "--sleep-interval");
+    flag!(args, "2");
+    flag!(args, "--max-sleep-interval");
+    flag!(args, "6");
+
+    // Progress as whole lines rather than as a bar rewritten with carriage returns. yt-dlp keeps
+    // the terminal; this only stops the output turning into one very long line when it is piped
+    // into a log.
+    flag!(args, "--newline");
+
+    if let Some(limit) = plan.limit {
+        flag!(args, "--playlist-items");
+        args.push(OsString::from(format!("1:{limit}")));
+    }
+
+    if let Some(browser) = &plan.cookies_from_browser {
+        flag!(args, "--cookies-from-browser");
+        args.push(OsString::from(browser));
+    }
+
+    if plan.dry_run {
+        flag!(args, "--simulate");
+    }
+
+    if let Some(archive) = &plan.archive {
+        flag!(args, "--download-archive");
+        args.push(archive.clone().into_os_string());
+    }
+
+    flag!(args, "-P");
+    args.push(plan.out.clone().into_os_string());
+
+    flag!(args, "--print-to-file");
+    flag!(
+        args,
+        if plan.dry_run {
+            SIMULATE_TEMPLATE
+        } else {
+            RECORD_TEMPLATE
+        }
+    );
+    // Deliberately the bare name, resolved against the `-P` above. See [`RECORDS_NAME`].
+    flag!(args, RECORDS_NAME);
+
+    // Last, so that everything before it reads as configuration and a long argv can still be
+    // skimmed for what it was actually asked to fetch.
+    if let Some(file) = &plan.from_file {
+        flag!(args, "--batch-file");
+        args.push(file.clone().into_os_string());
+    }
+    for target in &plan.targets {
+        args.push(OsString::from(target));
+    }
+
+    args
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn plan() -> Plan {
+        Plan {
+            targets: vec!["https://www.youtube.com/watch?v=abc".to_owned()],
+            from_file: None,
+            playlist: false,
+            out: PathBuf::from("videos"),
+            limit: None,
+            archive: Some(PathBuf::from("videos/.km-fetched.txt")),
+            cookies_from_browser: None,
+            subs: false,
+            format: None,
+            sort: None,
+            dry_run: false,
+        }
+    }
+
+    fn strings(plan: &Plan) -> Vec<String> {
+        argv(plan)
+            .into_iter()
+            .map(|arg| arg.to_string_lossy().into_owned())
+            .collect()
+    }
+
+    /// The value after `flag`, which is how a two-part option is asserted without depending on
+    /// where in the argv it fell.
+    fn value_of(args: &[String], flag: &str) -> Option<String> {
+        args.iter()
+            .position(|arg| arg == flag)
+            .and_then(|at| args.get(at + 1))
+            .cloned()
+    }
+
+    #[test]
+    fn a_single_url_does_not_drag_in_its_playlist() {
+        let args = strings(&plan());
+        assert!(args.contains(&"--no-playlist".to_owned()));
+        assert!(!args.contains(&"--yes-playlist".to_owned()));
+        assert_eq!(args.last().unwrap(), "https://www.youtube.com/watch?v=abc");
+    }
+
+    #[test]
+    fn a_playlist_is_expanded_only_when_asked() {
+        let mut plan = plan();
+        plan.playlist = true;
+        let args = strings(&plan);
+        assert!(args.contains(&"--yes-playlist".to_owned()));
+        assert!(!args.contains(&"--no-playlist".to_owned()));
+    }
+
+    #[test]
+    fn a_list_of_urls_becomes_a_batch_file() {
+        let mut plan = plan();
+        plan.targets.clear();
+        plan.from_file = Some(PathBuf::from("songs.txt"));
+        let args = strings(&plan);
+        assert_eq!(
+            value_of(&args, "--batch-file").as_deref(),
+            Some("songs.txt")
+        );
+    }
+
+    /// The profile is the reason this tool exists, so the two arguments that aim at it are asserted
+    /// by value rather than by presence.
+    #[test]
+    fn it_asks_for_the_shape_packaging_wants() {
+        let args = strings(&plan());
+        assert_eq!(value_of(&args, "-f").as_deref(), Some(FORMAT));
+        assert_eq!(value_of(&args, "-S").as_deref(), Some(SORT));
+        assert_eq!(
+            value_of(&args, "--merge-output-format").as_deref(),
+            Some("mp4")
+        );
+        assert_eq!(value_of(&args, "--remux-video").as_deref(), Some("mp4"));
+    }
+
+    #[test]
+    fn overrides_replace_the_defaults_rather_than_joining_them() {
+        let mut plan = plan();
+        plan.format = Some("bestvideo+bestaudio".to_owned());
+        plan.sort = Some("res".to_owned());
+        let args = strings(&plan);
+        assert_eq!(
+            value_of(&args, "-f").as_deref(),
+            Some("bestvideo+bestaudio")
+        );
+        assert_eq!(value_of(&args, "-S").as_deref(), Some("res"));
+        assert_eq!(args.iter().filter(|arg| *arg == "-f").count(), 1);
+        assert_eq!(args.iter().filter(|arg| *arg == "-S").count(), 1);
+    }
+
+    /// Both of these change the *stream layout* of the file, which is the one thing the machine's
+    /// decoder is strict about. See this module's header for why each is refused.
+    #[test]
+    fn nothing_extra_is_muxed_in_by_default() {
+        let args = strings(&plan());
+        assert!(!args.contains(&"--embed-thumbnail".to_owned()));
+        assert!(!args.contains(&"--embed-subs".to_owned()));
+        assert!(!args.contains(&"--restrict-filenames".to_owned()));
+    }
+
+    #[test]
+    fn subs_adds_only_subtitles_never_a_thumbnail() {
+        let mut plan = plan();
+        plan.subs = true;
+        let args = strings(&plan);
+        assert!(args.contains(&"--embed-subs".to_owned()));
+        assert!(!args.contains(&"--embed-thumbnail".to_owned()));
+    }
+
+    #[test]
+    fn the_tags_the_scanner_reads_are_asked_for() {
+        let args = strings(&plan());
+        assert!(args.contains(&"--embed-metadata".to_owned()));
+        assert_eq!(
+            args.iter().filter(|arg| *arg == "--parse-metadata").count(),
+            2
+        );
+        assert_eq!(value_of(&args, "-o").as_deref(), Some(OUTPUT_TEMPLATE));
+    }
+
+    #[test]
+    fn a_limit_becomes_a_playlist_range() {
+        let mut plan = plan();
+        plan.limit = Some(12);
+        assert_eq!(
+            value_of(&strings(&plan), "--playlist-items").as_deref(),
+            Some("1:12")
+        );
+    }
+
+    #[test]
+    fn the_archive_can_be_turned_off() {
+        let args = strings(&plan());
+        assert_eq!(
+            value_of(&args, "--download-archive").as_deref(),
+            Some("videos/.km-fetched.txt")
+        );
+
+        let mut plan = plan();
+        plan.archive = None;
+        assert!(!strings(&plan).contains(&"--download-archive".to_owned()));
+    }
+
+    /// Under `--simulate` the `after_move` stage never runs, so a template asking for it would
+    /// record nothing at all and the dry run would report an empty list rather than what it found.
+    #[test]
+    fn a_dry_run_records_what_it_would_have_fetched() {
+        let mut plan = plan();
+        plan.dry_run = true;
+        let args = strings(&plan);
+        assert!(args.contains(&"--simulate".to_owned()));
+        assert_eq!(
+            value_of(&args, "--print-to-file").as_deref(),
+            Some(SIMULATE_TEMPLATE)
+        );
+        assert!(!SIMULATE_TEMPLATE.contains("after_move"));
+        assert!(!SIMULATE_TEMPLATE.contains("filepath"));
+    }
+
+    /// The two templates have to ask for the same fields, less the one that cannot exist, or a dry
+    /// run reports something a real run does not.
+    #[test]
+    fn the_two_record_templates_stay_in_step() {
+        let real = RECORD_TEMPLATE
+            .trim_start_matches("after_move:")
+            .replace("filepath,", "");
+        assert_eq!(real, SIMULATE_TEMPLATE);
+    }
+
+    #[test]
+    fn cookies_are_passed_through_only_when_asked() {
+        assert!(!strings(&plan()).contains(&"--cookies-from-browser".to_owned()));
+        let mut plan = plan();
+        plan.cookies_from_browser = Some("firefox".to_owned());
+        assert_eq!(
+            value_of(&strings(&plan), "--cookies-from-browser").as_deref(),
+            Some("firefox")
+        );
+    }
+
+    #[test]
+    fn the_destination_is_where_it_was_asked_to_be() {
+        let args = strings(&plan());
+        assert_eq!(value_of(&args, "-P").as_deref(), Some("videos"));
+        assert_eq!(
+            value_of(&args, "--print-to-file").as_deref(),
+            Some(RECORD_TEMPLATE)
+        );
+    }
+
+    #[test]
+    fn the_archive_sits_beside_the_videos() {
+        assert_eq!(
+            Plan::default_archive(Path::new("some/folder")),
+            PathBuf::from("some/folder").join(ARCHIVE_NAME)
+        );
+        assert_eq!(
+            Plan::records_path(Path::new("some/folder")),
+            PathBuf::from("some/folder").join(RECORDS_NAME)
+        );
+    }
+
+    /// Regression. `--print-to-file`'s file argument goes through yt-dlp's output-template
+    /// machinery, so an absolute path there is *trimmed* by `--trim-filenames` — which shortens it
+    /// by dropping directory components. The record file was written a folder above the videos and
+    /// every run then reported fetching nothing, because that is where it looked. A bare name is
+    /// resolved against `-P` and is too short to trim.
+    #[test]
+    fn the_record_file_is_named_relatively_so_trimming_cannot_move_it() {
+        let args = strings(&plan());
+        assert_eq!(
+            value_of(&args, "--print-to-file").as_deref(),
+            Some(RECORD_TEMPLATE)
+        );
+
+        // The name follows the template, and is the argument after it.
+        let at = args
+            .iter()
+            .position(|arg| arg == RECORD_TEMPLATE)
+            .expect("the template is in the argv");
+        assert_eq!(args[at + 1], RECORDS_NAME);
+
+        let name = Path::new(RECORDS_NAME);
+        assert!(
+            name.is_relative(),
+            "an absolute path gets its directories trimmed away"
+        );
+        assert_eq!(
+            name.components().count(),
+            1,
+            "one component, so there is nothing to trim off"
+        );
+        assert!(
+            !RECORDS_NAME.starts_with('.'),
+            "sanitisation strips a leading dot, and then the file is not where it was asked for"
+        );
+    }
+
+    /// The counterpart: `--download-archive` is an ordinary path argument, neither trimmed nor
+    /// sanitised, so it keeps both its directory and its leading dot.
+    #[test]
+    fn the_archive_keeps_its_dot_because_nothing_rewrites_that_argument() {
+        assert!(ARCHIVE_NAME.starts_with('.'));
+        let args = strings(&plan());
+        assert_eq!(
+            value_of(&args, "--download-archive").as_deref(),
+            Some("videos/.km-fetched.txt")
+        );
+    }
+}

@@ -1,0 +1,19 @@
+# Normalize to LF in the repository; Git still checks out native line endings on Windows.
+# Keeps `cargo fmt --check` and diffs consistent wherever this is built.
+* text=auto
+
+*.rs    text eol=lf
+*.toml  text eol=lf
+*.md    text eol=lf
+*.yml   text eol=lf
+*.json  text eol=lf
+
+# **Shell scripts must keep LF wherever they are checked out**, and this one is load-bearing rather
+# than cosmetic. `sh` on Linux and macOS treats a trailing CR as part of the interpreter path, so a
+# CRLF checkout of `tools/dist/cmd.sh` fails with "bad interpreter: No such file or directory" —
+# a message that names the right path and gives no hint why.
+*.sh    text eol=lf
+
+# Note the lock file is deliberately *not* listed as binary: it is a text file, it wants normalizing
+# like everything else, and it is committed because these are binaries and a tool with a floating
+# dependency tree is one that stops working quietly.

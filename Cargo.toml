@@ -1,0 +1,42 @@
+[workspace]
+resolver = "3"
+# A glob rather than a list, and that is the one decision this file makes that is about the future.
+# The repository exists to hold more than one program -- `km-video-fetch` is the command line, and a
+# local web UI in the shape of karaokemachine's `km-package-builder` is planned beside it -- so a new
+# member is a new directory and nothing else. `crates/km-video-core` is where anything two programs
+# would both need lives; a binary crate here should be a command line and its output, and little more.
+members = ["crates/*"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+# The floor, not a pin. There is deliberately no `rust-toolchain.toml`: an exact channel is right for
+# an appliance whose build has to be reproducible, and wrong for a standalone tool other people
+# compile with whatever their distribution ships. This number is what clippy reads as the MSRV, there
+# being no `clippy.toml`.
+rust-version = "1.98.1"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/rrgmc/km-video-tools"
+publish = false
+
+# One version table so two members cannot drift onto two versions of the same crate.
+[workspace.dependencies]
+km-video-core = { path = "crates/km-video-core" }
+anyhow = "1.0.104"
+clap = { version = "4.6.6", features = ["derive"] }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.151"
+
+# `missing_docs` is load-bearing rather than a matter of taste: every item in this code carries a doc
+# comment *because of this lint*, and the comments are where the reasoning is. Turning it off would
+# not delete them, it would let them rot.
+[workspace.lints.rust]
+missing_docs = "warn"
+unsafe_code = "deny"
+
+[workspace.lints.clippy]
+todo = "warn"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1

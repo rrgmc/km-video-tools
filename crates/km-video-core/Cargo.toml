@@ -1,0 +1,20 @@
+[package]
+name = "km-video-core"
+description = "Fetching a karaoke video with yt-dlp, and checking what arrived against the packaging profile."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+# No `clap` here, on purpose. This crate has no opinion about how it was asked for -- that belongs to
+# whichever binary is asking, and keeping the boundary at "does it parse a command line" is what will
+# let a web UI reuse all of this without inheriting a CLI's argument types.
+[dependencies]
+anyhow = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+[lints]
+workspace = true

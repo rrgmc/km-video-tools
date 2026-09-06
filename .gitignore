@@ -1,0 +1,12 @@
+/target
+**/*.rs.bk
+*.pdb
+.idea/
+
+# What the tool leaves in a folder it has downloaded into. None of it belongs to the repository, and
+# a checkout used as an output folder is a mistake that should not also become a commit.
+.km-fetched.txt
+km-video-fetch-records.jsonl
+
+# Staged output. `task dist` writes it and `task clean` removes it; nothing here is ever committed.
+/dist

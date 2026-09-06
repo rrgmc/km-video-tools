@@ -1,0 +1,21 @@
+[package]
+name = "km-video-fetch"
+description = "Fetch a karaoke video with yt-dlp, already in the shape a karaoke package wants."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+# **No features, and that is a change from where this came from.** In karaokemachine the whole
+# check-and-normalize half sat behind a default-off `video` feature, because reaching the packaging
+# profile meant linking ffmpeg through `km-video`, which in turn needed libclang to build. Reading a
+# file with `ffprobe` needs neither, so the tool's third reason to exist is no longer optional.
+[dependencies]
+km-video-core = { workspace = true }
+anyhow = { workspace = true }
+clap = { workspace = true }
+
+[lints]
+workspace = true

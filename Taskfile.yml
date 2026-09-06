@@ -1,0 +1,78 @@
+# Task runner for this repository. https://taskfile.dev
+#
+#   task --list        what is routine
+#   task check         fmt, clippy, tests -- in the order a failure is cheapest to read
+#   task dist          stage a folder somebody can be handed, into dist/
+#
+# **Everything here is a thin wrapper over cargo**, deliberately. A task that does something cargo
+# cannot is a task worth having; a task that renames `cargo test` is one more name to learn. The
+# three that earn their place are `check` (an order, not a command), `dist` (a shell script) and
+# `clean` (which knows that `dist/` is output too).
+
+version: '3'
+
+silent: true
+
+tasks:
+  default:
+    desc: What `task check` does, without running it
+    cmds:
+      - task --list
+
+  check:
+    desc: fmt, clippy and tests, in the order a failure is cheapest to read
+    cmds:
+      - task: fmt-check
+      - task: lint
+      - task: test
+
+  fmt:
+    desc: Format everything
+    cmds:
+      - cargo fmt --all
+
+  fmt-check:
+    desc: Fail if anything is unformatted
+    cmds:
+      - cargo fmt --all --check
+
+  lint:
+    desc: clippy over every target, warnings denied
+    cmds:
+      - cargo clippy --workspace --all-targets -- -D warnings
+
+  test:
+    desc: The test suite
+    cmds:
+      - cargo test --workspace
+
+  build:
+    desc: Build the workspace
+    cmds:
+      - cargo build --workspace
+
+  run:
+    desc: 'Run km-video-fetch: task run -- <url> --out ./songs'
+    cmds:
+      - cargo run -p km-video-fetch -- {{.CLI_ARGS}}
+
+  dist:
+    desc: Stage every program into dist/<app>/<platform>/<app>-<version>-<triple>/
+    cmds:
+      - tools/dist/cmd.sh {{.CLI_ARGS}}
+
+  dist:zip:
+    desc: The same, plus a versioned .zip of each folder
+    cmds:
+      - tools/dist/cmd.sh --zip {{.CLI_ARGS}}
+
+  clean:
+    desc: Remove the staged output in dist/, leaving target/ alone
+    cmds:
+      - rm -rf dist
+
+  clean:all:
+    desc: Remove dist/ and everything cargo built
+    cmds:
+      - rm -rf dist
+      - cargo clean

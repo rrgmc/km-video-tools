@@ -1,0 +1,51 @@
+name: ci
+
+# **One job, Ubuntu only, and no matrix.** This is pure Rust with no platform-specific code beyond a
+# `#[cfg(windows)]` process flag and no C dependencies at all, so a Windows or macOS runner would
+# compile the same crates to prove the same thing — and GitHub bills those at 2x and 10x. A matrix is
+# worth adding the day something here actually differs per platform.
+#
+# **No `--all-features`.** There are no features today, so the flag is a no-op; it is also a broken
+# job the day a member gains one, and removing it before it is needed is cheaper than after.
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  check:
+    name: check (ubuntu-latest)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Stable rather than a pin, matching the deliberate absence of a `rust-toolchain.toml`; see
+      # `No rust-toolchain.toml` in docs/decisions.md. `rust-version` in the workspace manifest is
+      # what states the floor, and clippy reads it as the MSRV.
+      - run: rustup toolchain install stable --no-self-update --component rustfmt,clippy
+      - run: rustup default stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      # The parsing tests read captured `ffprobe` documents out of string literals and need nothing
+      # installed. This is here for the day a test actually runs the binary — at which point a job
+      # without it would fail with a message about a missing program rather than about the change.
+      - name: ffmpeg
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
+
+      - name: Check
+        run: |
+          cargo fmt --all --check
+          cargo clippy --workspace --all-targets -- -D warnings
+          cargo test --workspace
