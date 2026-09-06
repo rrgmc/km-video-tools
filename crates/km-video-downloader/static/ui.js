@@ -37,18 +37,24 @@
     return `Something went wrong (${response.status}).`;
   }
 
-  document.body.addEventListener("htmx:responseError", (event) => {
+  // **On `document`, not on `document.body`, and that distinction is load-bearing here.** Setting
+  // the output folder answers with the whole page and swaps it in with `hx-target="body"
+  // hx-swap="outerHTML"` — which replaces the body element itself, and takes every listener
+  // attached to it. Bound to the body, these survived exactly until somebody chose a folder, after
+  // which every refusal was silent again and the button looked dead. htmx's events bubble to
+  // `document`, which is not replaced by anything.
+  document.addEventListener("htmx:responseError", (event) => {
     toast(reason(event.detail));
   });
 
-  document.body.addEventListener("htmx:sendError", () => {
+  document.addEventListener("htmx:sendError", () => {
     toast("This program stopped answering. Is it still running?");
   });
 
   // Closing the folder browser puts the page back the way it loaded, which the server has nothing
   // to say about — so it is done here rather than through a route that would only ever return the
-  // same fixed button. Delegated from the body because the browser is swapped in after load.
-  document.body.addEventListener("click", (event) => {
+  // same fixed button. Delegated from `document` for the reason above.
+  document.addEventListener("click", (event) => {
     const button = event.target.closest("[data-close-browser]");
     if (!button) return;
     event.preventDefault();

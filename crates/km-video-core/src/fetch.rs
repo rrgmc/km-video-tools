@@ -191,6 +191,19 @@ pub fn fetch(request: &Request, mut on_event: impl FnMut(Event) -> Flow) -> Resu
         bail!("give URLs or a list of them, not both");
     }
 
+    // **Refused here rather than by yt-dlp.** An unknown browser is not a usage error yt-dlp turns
+    // down at the door: it starts, extracts, and fails on the first video with a message that reads
+    // like the site said no. A front end may well check this earlier and word it better — the web
+    // UI does — but the library will not build a command it knows cannot work.
+    if let Some(browser) = &plan.cookies_from_browser
+        && !args::browser_is_known(browser)
+    {
+        bail!(
+            "`{browser}` is not a browser yt-dlp can read cookies from. It knows {}.",
+            args::COOKIE_BROWSERS.join(", ")
+        );
+    }
+
     // **A folder is allowed to say what goes in it.** With nothing named, a `km-video-fetch.txt` in
     // the destination is taken as the list — the same argument the archive beside it already makes:
     // what to fetch *into this folder* is a fact about the folder, and one somebody maintains by

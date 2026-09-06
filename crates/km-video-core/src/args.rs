@@ -18,7 +18,7 @@
 //! * **`--embed-thumbnail`.** In MP4 yt-dlp attaches cover art as a second video stream carrying
 //!   `attached_pic`. A reader that takes the first video stream it finds then describes the JPEG
 //!   rather than the picture. [`crate::probe`] skips such a stream, and this refuses to create the
-//!   situation in the first place â two guards, because a file fetched by other means can still
+//!   situation in the first place — two guards, because a file fetched by other means can still
 //!   arrive carrying one. It buys nothing here, since the machine never shows cover art.
 //! * **`--embed-subs`.** It muxes a `mov_text` stream, and the `Searching a video's words` decision
 //!   in karaokemachine is that the project does not index a video's captions. Available behind
@@ -106,6 +106,38 @@ pub const RECORDS_NAME: &str = "km-video-fetch-records.jsonl";
 /// hand, and a leading dot would make it invisible in exactly the file manager they would edit it
 /// from. It says whose it is for `RECORDS_NAME`'s third reason.
 pub const BATCH_NAME: &str = "km-video-fetch.txt";
+
+/// The browsers yt-dlp can read cookies out of.
+///
+/// **Written down here rather than left to yt-dlp to reject**, so a front end can offer a list and
+/// refuse a typo with its own words. The failure this avoids is specific: `--cookies-from-browser
+/// chrom` is not a yt-dlp usage error but an *extraction* error, raised after the preflight has
+/// passed and the download has begun, and it reads like the site refused rather than like a
+/// misspelling.
+///
+/// **Sorted, because it is shown to a person.** Taken from `yt-dlp --help`; a version that grows a
+/// tenth browser will still work if it is typed in full, since [`browser_is_known`] checks only the
+/// part before the separators.
+pub const COOKIE_BROWSERS: [&str; 9] = [
+    "brave", "chrome", "chromium", "edge", "firefox", "opera", "safari", "vivaldi", "whale",
+];
+
+/// Whether yt-dlp will recognise this `--cookies-from-browser` value.
+///
+/// The full syntax is `BROWSER[+KEYRING][:PROFILE][::CONTAINER]`, and **only the browser is checked**
+/// — a profile is a name or a path on somebody's own machine and there is nothing here that could
+/// know it. Splitting on the separators is what lets `firefox:work` and `chrome+gnomekeyring` pass
+/// while `frefox` does not.
+#[must_use]
+pub fn browser_is_known(value: &str) -> bool {
+    let value = value.trim();
+    let name = value
+        .split(['+', ':'])
+        .next()
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    COOKIE_BROWSERS.contains(&name.as_str())
+}
 
 /// One progress line, for a caller reading yt-dlp's output rather than showing it.
 ///
@@ -528,6 +560,33 @@ mod tests {
             .trim_start_matches("after_move:")
             .replace("filepath,", "");
         assert_eq!(real, SIMULATE_TEMPLATE);
+    }
+
+    /// The whole point of the list: catching a typo here rather than letting yt-dlp raise it as an
+    /// extraction error halfway through a download.
+    #[test]
+    fn a_browser_is_recognised_with_or_without_its_trimmings() {
+        assert!(browser_is_known("firefox"));
+        assert!(
+            browser_is_known("  Chrome  "),
+            "trimmed, and case does not matter"
+        );
+        assert!(browser_is_known("firefox:work"), "a named profile");
+        assert!(browser_is_known("firefox::personal"), "a container");
+        assert!(browser_is_known("chrome+gnomekeyring"), "a keyring");
+        assert!(browser_is_known("chrome+gnomekeyring:Default"), "both");
+
+        assert!(!browser_is_known("frefox"), "the typo this exists for");
+        assert!(!browser_is_known(""));
+        assert!(!browser_is_known(":work"), "a profile with no browser");
+    }
+
+    /// Every name offered has to be one yt-dlp will take, or the list teaches a mistake.
+    #[test]
+    fn every_offered_browser_is_accepted() {
+        for browser in COOKIE_BROWSERS {
+            assert!(browser_is_known(browser), "{browser}");
+        }
     }
 
     #[test]

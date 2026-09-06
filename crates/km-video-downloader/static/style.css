@@ -242,6 +242,29 @@ button.link:hover {
   max-width: 18rem;
 }
 
+/* Spans both columns of the options grid, for a control whose explanation is longer than the
+ * control. `1 / -1` rather than a column count, so it stays right when the grid falls to one
+ * column on a narrow window. */
+.field.wide {
+  grid-column: 1 / -1;
+  max-width: 34rem;
+}
+
+.field small {
+  display: block;
+  margin-top: 0.3rem;
+  color: var(--dim);
+  font-size: 0.85rem;
+}
+
+/* An inline example is one token and should break as one. The global `code` rule sets
+ * `word-break: break-all` for the folder paths it is mostly used for, which is right there and
+ * wrong here — it split `firefox:work` across two lines as `firefo` and `x:work`. */
+.field small code {
+  word-break: normal;
+  white-space: nowrap;
+}
+
 .check {
   display: flex;
   gap: 0.55rem;

@@ -58,6 +58,8 @@ pub struct Index {
     pub limit: String,
     /// A browser to take cookies from, as typed.
     pub cookies_from_browser: String,
+    /// The browsers yt-dlp can read cookies out of, for the picker.
+    pub browsers: &'static [&'static str],
     /// The job, running or lately finished.
     pub job: Option<job::View>,
     /// What has arrived so far.
@@ -96,6 +98,7 @@ fn page(state: &State) -> Index {
         subs: settings.subs,
         limit: settings.limit.map(|n| n.to_string()).unwrap_or_default(),
         cookies_from_browser: settings.cookies_from_browser.clone().unwrap_or_default(),
+        browsers: &km_video_core::args::COOKIE_BROWSERS,
         job: state.job().map(|job| job.view()),
         results: state.job().map(|job| job.results()).unwrap_or_default(),
     }

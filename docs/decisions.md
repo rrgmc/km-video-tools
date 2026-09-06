@@ -146,6 +146,22 @@ which are karaokemachine crates. What is left is simpler rather than poorer: one
 
 `opener.rs` replaces the one of those four that is genuinely needed, in fifteen lines.
 
+## An unknown cookie browser is refused before anything is downloaded
+
+`--cookies-from-browser frefox` is **not** a usage error yt-dlp turns down at the door. It starts,
+extracts, and fails on the first video with a message that reads like the site said no. So
+`args::COOKIE_BROWSERS` writes the nine down and `args::browser_is_known` checks the part before
+`+`, `:` and `::` — the browser, never the profile, which is a name on somebody's own machine that
+nothing here could know.
+
+Checked in two places on purpose: the page refuses it as a form problem, with its own words and
+before a job exists, and `fetch()` refuses it as a command it knows cannot work. The second is the
+backstop and is what the command line gets.
+
+The field is an `input` with a `datalist` rather than a `select`, because the full syntax is
+`BROWSER[+KEYRING][:PROFILE][::CONTAINER]` and somebody with two Firefox profiles has to be able to
+say which. The list offers the nine; the field accepts the rest.
+
 ## The folder picker is a server-side listing
 
 **A browser will not tell a page where a picked file lives** — a file input gives contents, not

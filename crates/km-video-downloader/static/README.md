@@ -19,13 +19,20 @@ the network, so it should not need the network to draw itself.
 | `ui.js` | This program's own, and small on purpose. |
 | `icon.svg` | The tab's mark. An SVG so that every file here is a text file. |
 
-## Three things htmx will catch you with
+## Four things htmx will catch you with
 
-All three cost time in the programs this one is modelled on.
+Three cost time in the programs this one is modelled on. The fourth is this program's own, and it
+hid the first one.
 
 - **htmx does not swap a non-2xx response.** A handler that returns 400 with a perfectly good
   explanation puts nothing on the page at all, so a failure looks like a dead button. `ui.js` listens
   for `htmx:responseError` and `htmx:sendError` and is most of why it exists.
+- **A listener on `document.body` does not survive a swap of the body.** Setting the output folder
+  answers with the whole page and swaps it in with `hx-target="body" hx-swap="outerHTML"` — which
+  replaces the body element and takes every listener attached to it. Bound to the body, the error
+  handling above worked exactly until somebody chose a folder, after which every refusal was silent
+  again. Found by watching a perfectly good "that is not a browser yt-dlp knows" go nowhere. htmx's
+  events bubble to `document`, which nothing replaces, so that is where they are bound.
 - **A Windows path in `hx-vals` must go through `|json|safe`**, never `"{{ path }}"`. askama's HTML
   escaper leaves backslashes alone, so `D:\tunes\karaoke` becomes invalid JSON — `\t` is a tab and
   `\k` is nothing — `JSON.parse` throws, and htmx sends an **empty body**. Every click is then

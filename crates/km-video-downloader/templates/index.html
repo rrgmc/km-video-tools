@@ -112,10 +112,23 @@
       <input type="number" name="limit" min="1" value="{{ limit }}" placeholder="no limit">
     </label>
 
-    <label class="field small">
-      <span>Cookies from a browser</span>
+    {# A list rather than a bare text box, because a misspelt browser is not a usage error yt-dlp
+       refuses up front — it is an extraction error raised after the download has begun, and it
+       reads like the site said no. Still an `input`, not a `select`: the full syntax is
+       `BROWSER[+KEYRING][:PROFILE][::CONTAINER]`, and somebody with two Firefox profiles needs to
+       be able to say which. The datalist offers the nine; the field accepts the rest. #}
+    <label class="field wide">
+      <span>Take cookies from a browser</span>
       <input type="text" name="cookies_from_browser" value="{{ cookies_from_browser }}"
-             placeholder="firefox, chrome, edge&hellip;" spellcheck="false">
+             list="browsers" placeholder="none" spellcheck="false" autocapitalize="off">
+      <datalist id="browsers">
+        {% for browser in browsers %}<option value="{{ browser }}"></option>{% endfor %}
+      </datalist>
+      <small>
+        For material that needs an account. Close that browser first — Chrome and Edge keep their
+        cookie database locked while they are running. Add a profile after a colon
+        (<code>firefox:work</code>) where you have more than one.
+      </small>
     </label>
   </div>
 

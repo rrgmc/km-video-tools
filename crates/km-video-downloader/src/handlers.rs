@@ -54,6 +54,19 @@ pub async fn start(AxumState(state): AxumState<State>, multipart: Multipart) -> 
         return refused("Set a folder for the videos first.");
     };
 
+    // **Checked here rather than left to yt-dlp**, because yt-dlp does not treat an unknown browser
+    // as a usage error it refuses up front: it starts, extracts, and then fails on the first video
+    // with something that reads like the site said no. A misspelling deserves to be a sentence
+    // before anything has been downloaded.
+    if let Some(browser) = &form.cookies_from_browser
+        && !args::browser_is_known(browser)
+    {
+        return refused(&format!(
+            "\"{browser}\" is not a browser yt-dlp can read cookies from. It knows {}.",
+            args::COOKIE_BROWSERS.join(", ")
+        ));
+    }
+
     // The options are remembered as they are used rather than through a Save button, which is the
     // only arrangement where what runs and what comes back tomorrow cannot disagree.
     settings.playlist = form.playlist;

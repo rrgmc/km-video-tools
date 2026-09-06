@@ -69,6 +69,10 @@ struct Cli {
     no_archive: bool,
 
     /// Take cookies from a browser, for material that needs an account.
+    ///
+    /// One of brave, chrome, chromium, edge, firefox, opera, safari, vivaldi or whale, optionally
+    /// with a profile after a colon — `firefox:work`. Close that browser first: Chrome and Edge
+    /// keep their cookie database locked while they are running.
     #[arg(long, value_name = "BROWSER")]
     cookies_from_browser: Option<String>,
 
