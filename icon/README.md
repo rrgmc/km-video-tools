@@ -25,10 +25,12 @@ them, and `KM` on the plate** — the K in near-white, the M in the hue that nam
 tools serve [karaokemachine](https://github.com/rrgmc/karaokemachine) and are run beside it, so the
 mark belongs to that family.
 
-**The lead is a cyan, and it is the only thing that had to be its own.** That repository's four are
-amber for the machine, blue for the package builder, green for the offline remote and magenta for
-`km-admin`. Two taskbar buttons wearing the same icon are not tellable apart, which is the whole
-argument that produced four palettes there and a fifth here.
+**The lead is a vermilion, and it is the only thing that had to be its own.** That repository's four
+sit at 45° (the machine's amber), 148° (the remote's green), 196° (the package builder's blue) and
+324° (km-admin's magenta); this is 11°, which is 34° from its nearest neighbour. Two taskbar buttons
+wearing similar icons are not tellable apart, which is the whole argument that produced four
+palettes there and a fifth here — and the first attempt at this one, a cyan, failed it: 180° is 16°
+from the blue.
 
 The other four colours are that project's own theme values, written down as literals rather than
 imported: its renderer reads them out of `km_display::theme::Theme` and its types out of SDL, and

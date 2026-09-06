@@ -63,8 +63,12 @@ In karaokemachine the whole check-and-normalize half sat behind a default-off `v
 because reaching the profile meant linking ffmpeg. A build without the feature downloaded exactly as
 well and simply could not say whether what landed was playable.
 
-With `ffprobe` there is nothing to gate, so **there are no features in this workspace at all** and
-the tool's third reason to exist is always available.
+With `ffprobe` there is nothing to gate, so **the check is never behind a feature** and the tool's
+third reason to exist is always available.
+
+The workspace does have one feature — `km-video-downloader/desktop`, which is its window — and it is
+on by default. That is a different kind of thing: it decides what a program *is*, not whether it can
+answer a question it was asked.
 
 ## A binary crate here is a command line and its output
 
@@ -176,9 +180,14 @@ header fixed by the linker — so it is two binaries or it is neither.
 ## The icon is the same drawing under a fifth palette
 
 Angular bands, a near-black plate, `KM` with a coloured M: karaokemachine's mark, because these
-programs are run beside its and belong to it. **A cyan lead**, because none of its four uses one —
-amber for the machine, blue for the package builder, green for the remote, magenta for km-admin —
-and two taskbar buttons wearing the same icon are not tellable apart.
+programs are run beside its and belong to it. **A vermilion lead**, chosen by hue distance rather
+than by taste: its four sit at 45°, 148°, 196° and 324°, and this is 11° — 34° clear of the
+nearest. The first attempt, a cyan at 180°, was 16° from the package builder's blue, which is
+exactly the confusion a per-program palette exists to prevent.
+
+The other opening, around 260°, is a violet and is refused: the tile's own ground is a deep violet
+and its middle band a magenta, so a violet lead would make the whole icon one hue with nothing to
+catch at 16 pixels.
 
 `crates/km-video-downloader/examples/icon.rs` draws it and writes `icon/`. Its geometry is a copy of
 that repository's renderer, which reads colours out of `km_display::theme::Theme` and types out of
