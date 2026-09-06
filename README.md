@@ -7,7 +7,7 @@ Two programs over one library:
 | | |
 |---|---|
 | **`km-video-fetch`** | The command line. Download a video with `yt-dlp` as H.264/AAC in MP4, write the title and artist into its tags, and say whether what arrived is playable. |
-| **`km-video-downloader`** | The same fetch, as a page on `http://127.0.0.1:8181/`. Set a folder once, paste the links or pick a file of them, press Fetch, watch it happen. |
+| **`km-video-downloader`** | The same fetch, as an application with a window. Set a folder once, paste the links or pick a file of them, press Fetch, watch it happen. |
 
 They are the same program twice: both call `km_video_core::fetch::fetch`, and differ only in whether
 its events become lines or a progress bar.
@@ -29,16 +29,26 @@ km-video-fetch '<url>' --out ./songs
 km-video-fetch '<playlist url>' --playlist --out ./songs
 km-video-fetch --from-file urls.txt --out ./songs
 
-km-video-downloader --open          # the same thing, as a page
+km-video-downloader                    # the same thing, with a window
 ```
 
 A folder remembers what has already been fetched into it (`.km-fetched.txt`), and can carry its own
 list of what to fetch (`km-video-fetch.txt`), so re-running over a playlist picks up only what is
 new. The page reads that list too, and offers it as one click when it is there.
 
-## The page
+## The window
 
-`km-video-downloader` listens on `127.0.0.1:8181` — **this computer only**, because there is no
+It is a real application on Windows and macOS: its own window, its own icon, no console. Inside the
+window is a webview over the page the same process is serving, so one set of templates answers for
+the window and for a browser tab alike — `--browser` asks for the tab, and a `--no-default-features`
+build only has the tab.
+
+On Windows there are two executables. `km-video-downloader.exe` is the one to double-click;
+`km-video-downloader-console.exe` is the same program from a shell, where `--help` and the startup
+address have somewhere to go. A program cannot choose at run time which it is — the subsystem is a
+field in the PE header fixed by the linker.
+
+It listens on `127.0.0.1:8181` — **this computer only**, because there is no
 password on it and it writes files as you. `--lan` opens it to the rest of your network, for a
 network you trust and only while you need it. It remembers the output folder and the options
 between runs, in this platform's own config directory.
@@ -78,11 +88,12 @@ knowing:
 task check      # fmt, clippy, tests — in the order a failure is cheapest to read
 task dist       # stage a folder somebody can be handed, into dist/
 task run -- '<url>' --out ./songs
-task ui         # start the page and open a browser at it
+task ui         # run the window
 ```
 
 `task dist` writes `dist/<app>/<platform>/<app>-<version>-<triple>/` holding the executable, both
-licence texts and a README naming the version. `dist/` is output and is never committed.
+licence texts and a README naming the version — plus the console twin on Windows, and a `.app`
+bundle on macOS. `dist/` is output and is never committed.
 
 ## Layout
 
@@ -91,7 +102,9 @@ crates/
   km-video-core/        the library: the yt-dlp argv, running it, ffprobe, the packaging profile,
                         and `fetch()` — the whole sequence, reported as events
   km-video-fetch/       the command line — argument parsing and what gets printed
-  km-video-downloader/  the page — axum, askama, vendored htmx, all compiled into one file
+  km-video-downloader/  the window and the page — tao, wry, axum, askama and vendored htmx,
+                        every one of them compiled into a single file
+icon/                   generated: `cargo run -p km-video-downloader --example icon`
 tools/dist/             staging scripts; they write dist/, they never build into it
 docs/                   why things are the way they are
 ```

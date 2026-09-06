@@ -1,6 +1,7 @@
 [package]
 name = "km-video-downloader"
-description = "A page for fetching karaoke videos: set a folder, paste the links, watch it happen."
+description = "A window for fetching karaoke videos: set a folder, paste the links, watch it happen."
+default-run = "km-video-downloader"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -8,11 +9,39 @@ license.workspace = true
 repository.workspace = true
 publish.workspace = true
 
-# **No features, and in particular no `desktop`.** km-admin has one that swaps a browser tab for a
-# `wry` webview in a `tao` window, and it is worth having there. It is not reachable here: it also
-# needs `km-tray`, `km-console`, `km-osopen` and `km-logfile`, which are karaokemachine crates.
-# A browser tab is the whole user interface, which means one binary, no `windows_subsystem`, a real
-# stdout, and `println!` that does not panic.
+# Everything real is in the library; both binaries are four lines that say which shell they are.
+[lib]
+name = "km_video_downloader"
+path = "src/lib.rs"
+
+# **The one somebody double-clicks.** GUI-subsystem on Windows, so no console window appears beside
+# the application — which is what `windows_subsystem` in `main.rs` asks for.
+[[bin]]
+name = "km-video-downloader"
+path = "src/main.rs"
+
+# **Its console twin**, for a shell: same program, same library, but console-subsystem, so `--help`
+# and the startup banner have somewhere to go. Needed because the pair above cannot be one
+# executable — the subsystem is a header field fixed at link time, not a run-time choice.
+[[bin]]
+name = "km-video-downloader-console"
+path = "src/bin/km-video-downloader-console.rs"
+required-features = ["desktop"]
+
+# **On by default, and that is a change of mind.** The first version of this crate had no `desktop`
+# feature at all, on the grounds that km-admin's needs a tray, a console shim and an opener that are
+# karaokemachine crates. Two of those turned out not to be needed and the third is fifteen lines
+# here — and what the decision actually cost was the thing the program is for: double-clicking it
+# opened a console showing an address rather than an application.
+#
+# Default-on so that `cargo build` and a double-click both give the real thing. `--no-default-features`
+# still gives the browser-only build, which is what a Linux machine without `libwebkit2gtk` wants:
+# `wry` links it at load time, so a build carrying this feature does not *start* without it — a
+# failure in the dynamic loader, before `main`, that no flag can rescue.
+[features]
+default = ["desktop"]
+desktop = ["dep:wry", "dep:tao", "dep:muda"]
+
 [dependencies]
 km-video-core = { workspace = true }
 anyhow = { workspace = true }
@@ -26,11 +55,21 @@ tokio = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 
+wry = { workspace = true, optional = true }
+tao = { workspace = true, optional = true }
+muda = { workspace = true, optional = true }
+
 # `tower::ServiceExt::oneshot` drives `router()` as a service, so the route tests bind no socket at
 # all. That is not only tidiness: a test binary's path carries a build hash on Windows, so every
 # rebuild of a test that listens raises a fresh firewall prompt and leaves a dead rule behind.
 [dev-dependencies]
 tower = { workspace = true }
+# The icon generator, which is an example rather than a binary: it is run when the drawing changes
+# and never shipped.
+image = { workspace = true }
+
+[target.'cfg(windows)'.build-dependencies]
+winresource = { workspace = true }
 
 [lints]
 workspace = true

@@ -7,13 +7,14 @@
 //! [`km_video_core::fetch::fetch`] — and differs only in what it does with the events, which is to
 //! draw a bar instead of printing lines.
 //!
-//! # Why a page and not a window
+//! # A window, over a page
 //!
-//! Because a page is the whole user interface, and a browser is on every machine that has yt-dlp.
-//! `km-admin`, this program's model, has an optional `desktop` feature that swaps the tab for a
-//! `wry` webview in a `tao` window; that is worth having there and is not reachable here, since it
-//! also wants a tray, a console shim and an opener that are karaokemachine's crates. What is left is
-//! simpler: one binary, a real stdout, and `println!` that does not panic.
+//! It is an application with a window of its own, and the window is a webview pointed at the
+//! loopback address this same process is serving. **One set of templates answers for the window and
+//! for a browser tab alike**, which is the arrangement `km-package-builder`, `km-remote` and
+//! `km-admin` all use, and it is what stops there being two front ends to keep in step.
+//!
+//! `--browser` asks for the tab instead, and a build without the `desktop` feature only has the tab.
 //!
 //! # It listens on loopback
 //!
@@ -22,6 +23,8 @@
 //! it does.
 
 pub mod browse;
+#[cfg(feature = "desktop")]
+pub mod desktop;
 pub mod handlers;
 pub mod job;
 pub mod opener;
@@ -43,7 +46,37 @@ use clap::Parser;
 pub const DEFAULT_PORT: u16 = 8181;
 
 /// The folder the settings file lives in, under the platform's own config directory.
-const APP_DIR: &str = "km-video-downloader";
+pub(crate) const APP_DIR: &str = "km-video-downloader";
+
+/// Which of the two executables this is.
+///
+/// **The subsystem is a header field fixed at link time**, so a Windows program cannot decide at run
+/// time whether it has a console. That is why there are two binaries rather than a flag, and this is
+/// how the shared `run` is told which one it is in.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Shell {
+    /// `km-video-downloader` — a window where the build has one, and no console on Windows.
+    Windowed,
+    /// `km-video-downloader-console` — never a window, always somewhere to print.
+    Console,
+}
+
+/// Says one line to whoever is listening.
+///
+/// **Not `println!`, and that is not a style preference — it is a crash.** `std::io::_print` *panics*
+/// on a write failure, with `failed printing to stdout`, and a GUI-subsystem executable on Windows
+/// has a null standard output handle that fails every write. Left as `println!`, every double-click
+/// would abort the process, and it would never once fail when run from a shell, which is where it
+/// would have been tested.
+///
+/// The error is dropped rather than reported, because there is by definition nowhere to report it.
+pub fn say(line: &str) {
+    use std::io::Write as _;
+
+    let mut out = std::io::stdout();
+    let _ = writeln!(out, "{line}");
+    let _ = out.flush();
+}
 
 /// Fetch karaoke videos from a page instead of a command line.
 #[derive(Debug, Parser)]
@@ -61,8 +94,15 @@ pub struct Cli {
     pub lan: bool,
 
     /// Open a browser at the page once it is listening.
+    ///
+    /// Implied where there is no window to open — a build without the `desktop` feature, or a run
+    /// with `--browser` or `--lan`.
     #[arg(long)]
     pub open: bool,
+
+    /// Use a browser tab rather than this program's own window.
+    #[arg(long)]
+    pub browser: bool,
 
     /// Where the remembered folder and options are kept.
     #[arg(long, value_name = "PATH")]
@@ -111,8 +151,25 @@ impl Cli {
     }
 }
 
+/// Whether this run will have a window of its own.
+///
+/// **Three ways not to**, and each is somebody's choice rather than a failure: the build has no
+/// window in it, `--browser` asked for a tab, or `--lan` means the page is meant to be reached from
+/// another machine — where a window on *this* one is beside the point.
+fn will_have_a_window(shell: Shell, cli: &Cli) -> bool {
+    matches!(shell, Shell::Windowed) && cfg!(feature = "desktop") && !cli.browser && !cli.lan
+}
+
+/// Whether a browser should be opened.
+///
+/// `--open` asks for one; having no window of our own means one is the only way anybody sees the
+/// page, so it is implied rather than required.
+fn will_open_a_browser(shell: Shell, cli: &Cli) -> bool {
+    !will_have_a_window(shell, cli) && (cli.open || matches!(shell, Shell::Windowed))
+}
+
 /// Starts the program.
-pub fn run() -> Result<()> {
+pub fn run(shell: Shell) -> Result<()> {
     let cli = Cli::parse();
     let data_dir = resolve_data_dir(&cli)?;
 
@@ -120,6 +177,9 @@ pub fn run() -> Result<()> {
         .with_env_filter(tracing_subscriber::EnvFilter::new(cli.log_filter()))
         .init();
 
+    // **Built by hand rather than through `#[tokio::main]`**, because `tao`'s event loop owns the
+    // main thread and never gives it back. The runtime is handed to the window, which holds it for
+    // the life of the process; dropping it would stop the server the window is looking at.
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()
@@ -127,28 +187,35 @@ pub fn run() -> Result<()> {
 
     let state = server::State::new(data_dir, cli.yt_dlp.clone());
 
-    // **Bound before anything else**, so the address printed below is the one that is actually
+    // **Bound before anything else**, so the address said below is the one that is actually
     // listening — including the port the operating system chose, where 0 was asked for — and so a
-    // browser opened a line later waits in the accept backlog rather than meeting a refusal.
+    // window or a browser opened a line later waits in the accept backlog rather than meeting a
+    // refusal and drawing its own error page.
     let bound = runtime.block_on(server::bind(cli.bind()))?;
     let url = bound.url();
 
-    println!("{} is at {url}", server::APP_NAME);
+    say(&format!("{} is at {url}", server::APP_NAME));
     if cli.lan {
-        println!(
+        say(
             "Serving on every interface. There is no password on this program and it writes files \
-             as you."
+             as you.",
         );
     }
 
     let serving = runtime.spawn(server::serve(bound, state));
 
-    if cli.open
+    if will_open_a_browser(shell, &cli)
         && let Err(error) = opener::open(&url)
     {
-        // Never fatal. The address is on the screen already; a browser that would not start is a
+        // Never fatal. The address has been said already; a browser that would not start is a
         // sentence, not a reason to stop serving.
-        println!("could not open a browser: {error:#}");
+        say(&format!("could not open a browser: {error:#}"));
+    }
+
+    #[cfg(feature = "desktop")]
+    if will_have_a_window(shell, &cli) {
+        // Never returns.
+        return desktop::run(&url, runtime);
     }
 
     runtime

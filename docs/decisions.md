@@ -137,14 +137,57 @@ it belongs to a different repository, so it leads with white.
 draw form controls from the other one, which is how a light page ends up with dark dropdowns. There
 is no `prefers-color-scheme` block: this program has one appearance and states it.
 
-## The page's whole user interface is a browser tab
+## It is an application with a window, not a program that prints an address
 
-No `desktop` feature, no webview, no tray. `km-admin` has all three and they are worth having there;
-they are also unreachable here, since they want `km-tray`, `km-console`, `km-osopen` and `km-logfile`,
-which are karaokemachine crates. What is left is simpler rather than poorer: one binary, no
-`windows_subsystem`, a real stdout, and a `println!` that cannot panic.
+**This reverses the first decision made about it**, which was that a browser tab would be the whole
+user interface — on the grounds that km-admin's `desktop` feature wants `km-tray`, `km-console`,
+`km-osopen` and `km-logfile`, all karaokemachine crates. That was true of two of them and wrong
+about what it cost: double-clicking the executable opened a console showing an address, which is not
+an application. Of the four, the tray is genuinely optional, `opener.rs` replaces one in fifteen
+lines, and the console shim is replaced by [`say`] not being `println!` (below).
 
-`opener.rs` replaces the one of those four that is genuinely needed, in fifteen lines.
+So `desktop` is a feature and it is **on by default**, because the point of a default is what
+somebody gets without knowing there was a choice. `--no-default-features` still builds the
+browser-only program, which is what a Linux machine without libwebkit2gtk needs: `wry` links it at
+load time, so a build carrying the feature does not *start* there — a failure in the dynamic loader,
+before `main`, that no flag can rescue.
+
+The window is a **webview over the page this same process is serving**, which is the arrangement all
+three of karaokemachine's do: one set of templates answers for the window and for a browser tab
+alike, so there is never a second front end to keep in step. `--browser` asks for the tab.
+
+## `println!` is a crash in a GUI-subsystem executable
+
+`std::io::_print` **panics** on a write failure — `failed printing to stdout` — and a
+GUI-subsystem executable on Windows has a null standard output handle that fails every write. Left
+as `println!`, every double-click would abort the process, and it would never once fail when run
+from a shell, which is where it would have been tested.
+
+`say()` writes and drops the error. There is nowhere to report an error about there being nowhere to
+report.
+
+## Two executables, because the subsystem is a link-time field
+
+`km-video-downloader.exe` is GUI-subsystem so no console appears beside the application;
+`km-video-downloader-console.exe` is the same library, console-subsystem, for a shell that wants
+`--help` and the address. A program cannot choose at run time — the subsystem is a field in the PE
+header fixed by the linker — so it is two binaries or it is neither.
+
+## The icon is the same drawing under a fifth palette
+
+Angular bands, a near-black plate, `KM` with a coloured M: karaokemachine's mark, because these
+programs are run beside its and belong to it. **A cyan lead**, because none of its four uses one —
+amber for the machine, blue for the package builder, green for the remote, magenta for km-admin —
+and two taskbar buttons wearing the same icon are not tellable apart.
+
+`crates/km-video-downloader/examples/icon.rs` draws it and writes `icon/`. Its geometry is a copy of
+that repository's renderer, which reads colours out of `km_display::theme::Theme` and types out of
+SDL, neither reachable from here. **The copy can drift and that is fine**: these are different
+programs' icons and are supposed to differ.
+
+The `.ico` goes inside the Windows executable through `build.rs`, which is the only way Explorer,
+the Start menu and the taskbar have an icon *before* the process starts. The `.icns` is written
+without `iconutil`, so a macOS bundle can be staged from any machine.
 
 ## An unknown cookie browser is refused before anything is downloaded
 

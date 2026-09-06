@@ -31,6 +31,63 @@ cd "$(dirname "$0")/../.."
 
 . tools/dist/common.sh
 
+
+# The macOS application bundle.
+#
+# **A directory with a plist in it, and that is the whole of what an application is on that
+# platform.** Without one there is no Dock icon, no name in the menu bar and nothing to
+# double-click — the binary runs and opens a window, but as an anonymous process.
+#
+# `LSUIElement` is deliberately *not* set: this is an application somebody looks at, not an agent.
+# `NSHighResolutionCapable` is what stops the webview being drawn at 1x and scaled up.
+#
+# Unsigned, and that is worth saying out loud: macOS will refuse a downloaded copy until it is
+# opened once from the context menu, or `xattr -d com.apple.quarantine` is run over it. A copy built
+# on the machine it runs on has no quarantine attribute and is not affected.
+bundle() { # <app> <version> <folder>
+  local app="$1" version="$2" folder="$3"
+  local name; name="$(display_name "$app")"
+  local root="$folder/$name.app"
+
+  rm -rf "$root"
+  mkdir -p "$root/Contents/MacOS" "$root/Contents/Resources"
+
+  cp "$folder/$app" "$root/Contents/MacOS/$app"
+  cp "icon/$app.icns" "$root/Contents/Resources/$app.icns"
+
+  cat > "$root/Contents/Info.plist" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleName</key><string>$name</string>
+  <key>CFBundleDisplayName</key><string>$name</string>
+  <key>CFBundleIdentifier</key><string>com.rrgmc.$app</string>
+  <key>CFBundleExecutable</key><string>$app</string>
+  <key>CFBundleIconFile</key><string>$app</string>
+  <key>CFBundleVersion</key><string>$version</string>
+  <key>CFBundleShortVersionString</key><string>$version</string>
+  <key>CFBundlePackageType</key><string>APPL</string>
+  <key>NSHighResolutionCapable</key><true/>
+</dict>
+</plist>
+PLIST
+
+  echo "dist: bundled $root"
+}
+
+# What a program is called where a person reads it rather than types it.
+#
+# The bundle's name, and the one macOS draws in the menu bar. Everything else — the executable, the
+# folder, the command somebody types — keeps the hyphenated form.
+display_name() { # <app>
+  case "$1" in
+    km-video-downloader) printf 'KM Video Downloader' ;;
+    km-video-fetch)      printf 'km-video-fetch' ;;
+    *)                   printf '%s' "$1" ;;
+  esac
+}
+
 ALL_APPS=(km-video-fetch km-video-downloader)
 
 # The document in the folder. Dispatched by name, so a program with no README here is a hard failure
@@ -124,8 +181,12 @@ readme_km_video_downloader() { # <version>
 km-video-downloader $1
 $(printf '=%.0s' $(seq 1 $((20 + ${#1}))))
 
-The same fetching as km-video-fetch, with a page instead of a command line. Set a folder once, paste
-the links or pick a file of them, press Fetch, and watch it happen.
+The same fetching as km-video-fetch, with a window instead of a command line. Set a folder once,
+paste the links or pick a file of them, press Fetch, and watch it happen.
+
+There are two executables here. Double-click **km-video-downloader**; it opens its own window and no
+console. **km-video-downloader-console** is the same program from a shell, where --help and the
+address it is serving at have somewhere to be read.
 
 What you need first
 -------------------
@@ -139,10 +200,11 @@ yt-dlp, and ffmpeg. Neither is included here and neither is downloaded for you.
 Running it
 ----------
 
-    km-video-downloader --open
+    km-video-downloader
 
-starts it and opens a browser at http://127.0.0.1:8181/. Without --open it prints the address and
-waits. Ctrl-C stops it.
+opens the window. --browser uses a browser tab instead, and --open opens one alongside. The page is
+at http://127.0.0.1:8181/ either way; closing the window stops the program, as does Ctrl-C in the
+console build.
 
 It listens on this computer only. There is no password on it, and it writes files as you --- so
 --lan, which makes it reachable from the rest of your network, is for a network you trust and only
@@ -154,6 +216,7 @@ Options
     --port N                  the port to listen on, default 8181
     --lan                     listen on every interface, not only this computer
     --open                    open a browser once it is listening
+    --browser                 use a browser tab rather than this program's own window
     --data-dir PATH           where the remembered folder and options are kept
     --yt-dlp PATH             the yt-dlp to run, when it is not on the PATH
     -v, --verbose             say more; twice for a great deal more
@@ -229,6 +292,21 @@ for app in "${APPS[@]}"; do
   cp "$exe" "$folder/"
   cp LICENSE-MIT LICENSE-APACHE "$folder/"
   readme "$app" "$version" > "$folder/README.txt"
+
+  # **The console twin, where the program has one.** `km-video-downloader` is GUI-subsystem on
+  # Windows so a double-click gives an application rather than a black window -- which also means it
+  # has nowhere to print, so `--help` and anything that goes wrong need the second executable.
+  # Staged by looking for it rather than from a list: a program either built one or did not.
+  console="$TARGET_DIR/release/$app-console$EXT"
+  if [ -f "$console" ]; then
+    cp "$console" "$folder/"
+  fi
+
+  # ...and on macOS the same executable again inside a bundle, which is the only form the platform
+  # gives a Dock icon, a name in the menu bar, and a double-click.
+  if [ "$PLATFORM" = macos ] && [ -f "icon/$app.icns" ]; then
+    bundle "$app" "$version" "$folder"
+  fi
 
   echo "dist: staged $folder"
 
