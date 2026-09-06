@@ -85,6 +85,7 @@ fn build_window(
     if let Some(position) = position {
         builder = builder.with_position(position);
     }
+    builder = with_icons(builder);
     let window = match builder.build(event_loop) {
         Ok(window) => window,
         Err(error) => {
@@ -115,6 +116,62 @@ fn build_window(
     };
 
     Some((window, webview))
+}
+
+/// Puts this program's mark on the window.
+///
+/// **The executable already carries the icon and the window does not get it for free.** `build.rs`
+/// writes it into the resource section, which is what Explorer, the Start menu and the taskbar
+/// button read *before* the process starts — but a window is created from a class with no icon set,
+/// so without this the title bar and the running taskbar button show Windows' default. The picture
+/// was right in every place except the one somebody is looking at.
+///
+/// **Two icons, because Windows keeps two.** `with_window_icon` sets `ICON_SMALL`, which is the
+/// title bar, and `with_taskbar_icon` sets `ICON_BIG`, which is the button and Alt-Tab.
+///
+/// **And the size is asked for rather than left to default, which is the trap.** `from_resource`
+/// with no size passes `LR_DEFAULTSIZE`, meaning the *large* metric — so the title bar would get a
+/// 32-pixel drawing squashed into 16, which on a mark this small is the difference between two
+/// letters and a smudge. The `.ico` carries real 16, 32, 48 and 256 frames; each ask picks one.
+#[cfg(windows)]
+fn with_icons(builder: WindowBuilder) -> WindowBuilder {
+    use tao::platform::windows::WindowBuilderExtWindows as _;
+
+    builder
+        .with_window_icon(icon_at(16))
+        .with_taskbar_icon(icon_at(256))
+}
+
+/// One frame out of the executable's own icon resource.
+///
+/// `None` never stops the window opening: an icon that could not be loaded is a blemish, and a
+/// program that refuses to run over one is a bug.
+#[cfg(windows)]
+fn icon_at(side: u32) -> Option<tao::window::Icon> {
+    use tao::platform::windows::IconExtWindows as _;
+
+    /// Which resource holds the icon: `winresource`'s default application icon id, which is what
+    /// `build.rs`'s `set_icon` writes. Named rather than spelled `1` at the call site, because the
+    /// two have to agree and nothing checks that they do.
+    const ICON_ORDINAL: u16 = 1;
+
+    let wanted = tao::dpi::PhysicalSize::new(side, side);
+    match tao::window::Icon::from_resource(ICON_ORDINAL, Some(wanted)) {
+        Ok(icon) => Some(icon),
+        Err(error) => {
+            tracing::debug!(%error, side, "no icon in this executable; Windows' default it is");
+            None
+        }
+    }
+}
+
+/// Everywhere else the platform already has the picture.
+///
+/// macOS reads the bundle's `CFBundleIconFile`, which `tools/dist/cmd.sh` writes; Linux never builds
+/// this feature.
+#[cfg(not(windows))]
+fn with_icons(builder: WindowBuilder) -> WindowBuilder {
+    builder
 }
 
 /// The application menu, on the one platform that has one.
