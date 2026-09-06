@@ -1,0 +1,193 @@
+//! What the page looks like: the template structs and the GET handlers that fill them in.
+//!
+//! The split with [`crate::handlers`] is that **views render and handlers act**. A GET here builds a
+//! struct out of owned data and hands it to [`render`]; nothing in this file changes anything.
+
+use askama::Template;
+use axum::extract::{Query, State as AxumState};
+use axum::response::{Html, IntoResponse, Response};
+use serde::Deserialize;
+
+use crate::browse;
+use crate::job;
+use crate::server::{APP_NAME, State};
+
+/// Renders one template, or says why it could not.
+///
+/// A render failure is this program's own bug rather than anything a person did, so it answers 500
+/// with the reason — which `ui.js` then shows as a toast, because htmx will not swap a non-2xx
+/// response and the page would otherwise simply stop responding.
+fn render<T: Template>(template: &T) -> Response {
+    match template.render() {
+        Ok(html) => Html(html).into_response(),
+        Err(error) => {
+            tracing::error!(%error, "could not render a page");
+            (
+                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                format!("could not render this page: {error}"),
+            )
+                .into_response()
+        }
+    }
+}
+
+/// The one page.
+#[derive(Template)]
+#[template(path = "index.html")]
+pub struct Index {
+    /// What the program calls itself, in the title and the bar.
+    pub app_name: &'static str,
+    /// The remembered folder, as typed.
+    pub out: String,
+    /// Whether that folder is there. A folder that is not there yet is not an error — it is made on
+    /// the first fetch — but saying so beats a silent surprise.
+    pub out_exists: bool,
+    /// How many videos are already in it, where it exists.
+    pub out_videos: Option<usize>,
+    /// The folder's own list of links, where it has one.
+    pub own_list: Option<String>,
+    /// How many links that list holds.
+    pub own_list_count: usize,
+    /// Expand playlists.
+    pub playlist: bool,
+    /// Re-encode anything outside the profile.
+    pub normalize: bool,
+    /// Mux subtitles.
+    pub subs: bool,
+    /// At most this many from a playlist, as typed. Empty for no limit.
+    pub limit: String,
+    /// A browser to take cookies from, as typed.
+    pub cookies_from_browser: String,
+    /// The job, running or lately finished.
+    pub job: Option<job::View>,
+    /// What has arrived so far.
+    pub results: Vec<job::Arrival>,
+}
+
+/// `GET /` — the whole page.
+pub async fn index(AxumState(state): AxumState<State>) -> Response {
+    render_page(&state)
+}
+
+/// The whole page, for a handler that changed enough of it to redraw all of it.
+pub fn render_page(state: &State) -> Response {
+    render(&page(state))
+}
+
+/// The page as it stands.
+fn page(state: &State) -> Index {
+    let settings = state.settings();
+    let out = settings.out();
+    let own_list = out
+        .as_deref()
+        .and_then(km_video_core::args::Plan::folders_own_list);
+
+    Index {
+        app_name: APP_NAME,
+        out: settings.out.clone(),
+        out_exists: out.as_deref().is_some_and(std::path::Path::is_dir),
+        out_videos: out.as_deref().and_then(count_videos),
+        own_list_count: own_list.as_deref().map_or(0, |list| {
+            std::fs::read_to_string(list).map_or(0, |text| crate::handlers::urls_in(&text).len())
+        }),
+        own_list: own_list.map(|list| list.display().to_string()),
+        playlist: settings.playlist,
+        normalize: settings.normalize,
+        subs: settings.subs,
+        limit: settings.limit.map(|n| n.to_string()).unwrap_or_default(),
+        cookies_from_browser: settings.cookies_from_browser.clone().unwrap_or_default(),
+        job: state.job().map(|job| job.view()),
+        results: state.job().map(|job| job.results()).unwrap_or_default(),
+    }
+}
+
+/// How many video files a folder already holds.
+///
+/// The top level only, and by extension only. This is a number shown beside a folder name to help
+/// somebody recognise it, not an inventory — walking a corpus of tens of thousands of files to
+/// draw one page would be absurd.
+fn count_videos(dir: &std::path::Path) -> Option<usize> {
+    let entries = std::fs::read_dir(dir).ok()?;
+    Some(
+        entries
+            .flatten()
+            .filter(|entry| {
+                entry
+                    .path()
+                    .extension()
+                    .and_then(|ext| ext.to_str())
+                    .is_some_and(|ext| {
+                        matches!(
+                            ext.to_ascii_lowercase().as_str(),
+                            "mp4" | "mkv" | "webm" | "mov" | "avi" | "m4v"
+                        )
+                    })
+            })
+            .count(),
+    )
+}
+
+/// The progress fragment, which is also what starting a fetch answers with.
+#[derive(Template)]
+#[template(path = "_job.html")]
+pub struct JobFragment {
+    /// The job, or `None` where nothing has run yet.
+    pub job: Option<job::View>,
+}
+
+/// `GET /progress` — the poll.
+pub async fn progress(AxumState(state): AxumState<State>) -> Response {
+    render(&JobFragment {
+        job: state.job().map(|job| job.view()),
+    })
+}
+
+/// The same fragment, for a handler that has just started something.
+pub fn job_fragment(job: &job::Job) -> Response {
+    render(&JobFragment {
+        job: Some(job.view()),
+    })
+}
+
+/// What arrived.
+#[derive(Template)]
+#[template(path = "_results.html")]
+pub struct Results {
+    /// One row per file.
+    pub results: Vec<job::Arrival>,
+}
+
+/// `GET /results` — redrawn once, by the last frame the poll ever receives.
+pub async fn results(AxumState(state): AxumState<State>) -> Response {
+    render(&Results {
+        results: state.job().map(|job| job.results()).unwrap_or_default(),
+    })
+}
+
+/// One directory listing.
+#[derive(Template)]
+#[template(path = "_browse.html")]
+pub struct Browse {
+    /// Where this is and what is in it.
+    pub listing: browse::Listing,
+}
+
+/// Which folder to list.
+#[derive(Debug, Deserialize)]
+pub struct Where {
+    /// The folder, absent on the first click.
+    #[serde(default)]
+    pub at: Option<String>,
+}
+
+/// `GET /browse` — one step of the folder picker.
+pub async fn browse(AxumState(state): AxumState<State>, Query(asked): Query<Where>) -> Response {
+    let at = match asked.at {
+        // An explicitly empty `at` is the drive list, and is how the crumb bar climbs off `D:\`.
+        Some(typed) => browse::tidy(&typed),
+        None => browse::start(state.settings().out().as_deref()),
+    };
+    render(&Browse {
+        listing: browse::list(&at),
+    })
+}

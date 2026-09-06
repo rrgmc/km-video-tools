@@ -150,7 +150,24 @@ pub fn spawn(binary: &OsStr, args: &[OsString]) -> Result<bool> {
     Ok(status.success())
 }
 
+/// Whether to keep going.
+///
+/// Returned by the line sink rather than read from a flag the caller also holds, so that the one
+/// thing already being called for every line is also the thing that can say stop. There is nowhere
+/// else to ask: between lines is the only moment this function is not blocked on a pipe.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Flow {
+    /// Carry on.
+    Go,
+    /// Stop as soon as possible.
+    Stop,
+}
+
 /// Runs yt-dlp with its output piped, calling `on_line` for every line of it.
+///
+/// **`on_line` also says whether to carry on**, by returning a [`Flow`]. A caller with a Stop
+/// button has nowhere else to be asked: between lines is the only moment this function is not
+/// blocked on a pipe.
 ///
 /// The same contract as [`spawn`] — a non-zero exit is reported rather than raised — and the same
 /// return value. What differs is where yt-dlp's words go: to `on_line` rather than to a terminal.
@@ -173,7 +190,7 @@ pub fn spawn(binary: &OsStr, args: &[OsString]) -> Result<bool> {
 pub fn spawn_watched(
     binary: &OsStr,
     args: &[OsString],
-    mut on_line: impl FnMut(&str),
+    mut on_line: impl FnMut(&str) -> Flow,
 ) -> Result<bool> {
     let mut child = Command::new(binary)
         .args(args)
@@ -186,9 +203,25 @@ pub fn spawn_watched(
     let stderr = child.stderr.take();
     let collect = std::thread::spawn(move || lines_of(stderr));
 
+    // **Read as it arrives, not collected first.** stdout is where the progress is, and a caller
+    // drawing a bar from it needs the lines now rather than at the end.
+    let mut stopped = false;
     if let Some(stdout) = child.stdout.take() {
-        for line in lines_of(Some(stdout)) {
-            on_line(&line);
+        use std::io::{BufRead as _, BufReader};
+        for line in BufReader::new(stdout).split(b'\n').map_while(Result::ok) {
+            let text = String::from_utf8_lossy(&line).trim_end().to_owned();
+            if text.is_empty() {
+                continue;
+            }
+            if on_line(&text) == Flow::Stop {
+                // **Killed, because there is no gentler way.** yt-dlp downloads a whole playlist in
+                // one process, so stopping means ending it. What it leaves behind is a `.part` file,
+                // and `--continue` — which this always passes — picks that up next time rather than
+                // starting the video again.
+                let _ = child.kill();
+                stopped = true;
+                break;
+            }
         }
     }
 
@@ -196,7 +229,9 @@ pub fn spawn_watched(
     for line in collect.join().unwrap_or_default() {
         on_line(&line);
     }
-    Ok(status.success())
+    // A killed child exits unsuccessfully, and reporting that as a failure would put "yt-dlp
+    // reported a failure" on the screen of somebody who pressed Stop.
+    Ok(stopped || status.success())
 }
 
 /// Every non-empty line a reader produces, lossily decoded.

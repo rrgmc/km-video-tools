@@ -162,7 +162,12 @@ fn run() -> Result<bool> {
         dry_run: cli.dry_run,
         normalizing: u8::MAX,
     };
-    let outcome = fetch::fetch(&request, |event| reporter.say(&event))?;
+    // The command line never stops of its own accord: the child owns the terminal, and Ctrl-C
+    // reaches yt-dlp directly.
+    let outcome = fetch::fetch(&request, |event| {
+        reporter.say(&event);
+        fetch::Flow::Go
+    })?;
 
     if !outcome.all_playable && cli.strict {
         eprintln!("\nat least one file cannot be played as it is; --normalize re-encodes them");

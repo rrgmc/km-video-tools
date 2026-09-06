@@ -2,14 +2,15 @@
 
 Tools for getting karaoke **video** songs onto disk, in the shape a karaoke package wants them.
 
-One program today:
+Two programs over one library:
 
 | | |
 |---|---|
-| **`km-video-fetch`** | Download a video with `yt-dlp` as H.264/AAC in MP4, write the title and artist into its tags, and say whether what arrived is playable. |
+| **`km-video-fetch`** | The command line. Download a video with `yt-dlp` as H.264/AAC in MP4, write the title and artist into its tags, and say whether what arrived is playable. |
+| **`km-video-downloader`** | The same fetch, as a page on `http://127.0.0.1:8181/`. Set a folder once, paste the links or pick a file of them, press Fetch, watch it happen. |
 
-A local web UI over the same fetch is the reason this is a workspace rather than one crate; the
-shared half already lives in `km-video-core`.
+They are the same program twice: both call `km_video_core::fetch::fetch`, and differ only in whether
+its events become lines or a progress bar.
 
 ## What it is for
 
@@ -27,11 +28,27 @@ landed.
 km-video-fetch '<url>' --out ./songs
 km-video-fetch '<playlist url>' --playlist --out ./songs
 km-video-fetch --from-file urls.txt --out ./songs
+
+km-video-downloader --open          # the same thing, as a page
 ```
 
 A folder remembers what has already been fetched into it (`.km-fetched.txt`), and can carry its own
 list of what to fetch (`km-video-fetch.txt`), so re-running over a playlist picks up only what is
-new.
+new. The page reads that list too, and offers it as one click when it is there.
+
+## The page
+
+`km-video-downloader` listens on `127.0.0.1:8181` — **this computer only**, because there is no
+password on it and it writes files as you. `--lan` opens it to the rest of your network, for a
+network you trust and only while you need it. It remembers the output folder and the options
+between runs, in this platform's own config directory.
+
+It is one page, in four parts: where the videos go, what to fetch, how, and what happened. A folder
+is chosen by typing a path or by browsing — the listing is done on the server, because a browser will
+not tell a page where a picked file lives, and a native dialog would mean a GUI toolkit on every
+platform for one interaction. Progress is polled once a second, and yt-dlp's own output is kept
+beside the bar, because in a terminal that is what somebody reads when a download fails and there is
+no terminal here.
 
 ## What you need
 
@@ -61,6 +78,7 @@ knowing:
 task check      # fmt, clippy, tests — in the order a failure is cheapest to read
 task dist       # stage a folder somebody can be handed, into dist/
 task run -- '<url>' --out ./songs
+task ui         # start the page and open a browser at it
 ```
 
 `task dist` writes `dist/<app>/<platform>/<app>-<version>-<triple>/` holding the executable, both
@@ -70,15 +88,18 @@ licence texts and a README naming the version. `dist/` is output and is never co
 
 ```
 crates/
-  km-video-core/     the library: the yt-dlp argv, running it, ffprobe, the packaging profile
-  km-video-fetch/    the command line — argument parsing and what gets printed, and nothing else
-tools/dist/          staging scripts; they write dist/, they never build into it
-docs/                why things are the way they are
+  km-video-core/        the library: the yt-dlp argv, running it, ffprobe, the packaging profile,
+                        and `fetch()` — the whole sequence, reported as events
+  km-video-fetch/       the command line — argument parsing and what gets printed
+  km-video-downloader/  the page — axum, askama, vendored htmx, all compiled into one file
+tools/dist/             staging scripts; they write dist/, they never build into it
+docs/                   why things are the way they are
 ```
 
 The rule the split exists to keep: **a binary crate here is a command line and its output.** Every
-`println!` in `km-video-fetch` is in its `main.rs`, and nothing in `km-video-core` prints at all —
-which is what will let a second program fetch and check exactly the same way.
+`println!` in `km-video-fetch` is in its `main.rs`, nothing in `km-video-core` prints at all, and
+`km-video-downloader` renders the same events into HTML. That is what makes the two programs one
+program with two faces rather than two programs that agree by accident.
 
 ## Where this came from
 

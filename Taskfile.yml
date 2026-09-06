@@ -56,6 +56,11 @@ tasks:
     cmds:
       - cargo run -p km-video-fetch -- {{.CLI_ARGS}}
 
+  ui:
+    desc: Run km-video-downloader and open it in a browser
+    cmds:
+      - cargo run -p km-video-downloader -- --open {{.CLI_ARGS}}
+
   dist:
     desc: Stage every program into dist/<app>/<platform>/<app>-<version>-<triple>/
     cmds:

@@ -26,6 +26,13 @@ use anyhow::{Context, Result, bail};
 
 use crate::{args, check, profile, run};
 
+/// Whether to keep going, said by the same closure that hears about everything else.
+///
+/// **A return value rather than a flag the caller also holds**, because there is exactly one thing
+/// already being called at every point where stopping is possible, and giving it a second job costs
+/// nothing. A caller that never wants to stop returns [`Flow::Go`] and forgets about it.
+pub use crate::run::Flow;
+
 /// How yt-dlp's own output is handled.
 ///
 /// The one thing the two front ends genuinely differ on, which is why it is a parameter rather than
@@ -166,6 +173,8 @@ pub struct Outcome {
     pub completed: bool,
     /// Whether every file that arrived can be played as it is.
     pub all_playable: bool,
+    /// Whether the caller asked it to stop before it was done.
+    pub stopped: bool,
 }
 
 /// Runs one fetch from end to end.
@@ -174,7 +183,7 @@ pub struct Outcome {
 /// fetch, a destination that cannot be created. Everything after that is reported as an event and
 /// summarised in the [`Outcome`], because by then files exist and a caller needs to hear about them
 /// rather than about an error.
-pub fn fetch(request: &Request, mut on_event: impl FnMut(Event)) -> Result<Outcome> {
+pub fn fetch(request: &Request, mut on_event: impl FnMut(Event) -> Flow) -> Result<Outcome> {
     let mut plan = request.plan.clone();
     plan.progress_lines = matches!(request.progress, Progress::Watched);
 
@@ -192,7 +201,9 @@ pub fn fetch(request: &Request, mut on_event: impl FnMut(Event)) -> Result<Outco
     if plan.targets.is_empty() && plan.from_file.is_none() {
         plan.from_file = args::Plan::folders_own_list(&plan.out);
         match &plan.from_file {
-            Some(list) => on_event(Event::ReadingList(list.clone())),
+            Some(list) => {
+                on_event(Event::ReadingList(list.clone()));
+            }
             None => bail!(
                 "nothing to fetch — give a URL, or a list of them, or put one in {}",
                 plan.out.join(args::BATCH_NAME).display()
@@ -223,6 +234,8 @@ pub fn fetch(request: &Request, mut on_event: impl FnMut(Event)) -> Result<Outco
     on_event(Event::Command(command_line(&binary, &argv)));
 
     let completed = match request.progress {
+        // Nothing to stop against: the child owns the terminal, so Ctrl-C reaches it directly and
+        // is a better answer than anything this could arrange.
         Progress::Terminal => run::spawn(&binary, &argv)?,
         Progress::Watched => {
             run::spawn_watched(&binary, &argv, |line| match progress_line(line) {
@@ -234,10 +247,10 @@ pub fn fetch(request: &Request, mut on_event: impl FnMut(Event)) -> Result<Outco
 
     let fetched = run::read_records(&records)?;
     let _ = std::fs::remove_file(&records);
-    on_event(Event::Downloaded {
+    let mut stopped = on_event(Event::Downloaded {
         ok: completed,
         fetched: fetched.len(),
-    });
+    }) == Flow::Stop;
 
     // Looked up once for the whole run rather than per file: it shells out to `ffmpeg -encoders`,
     // and asking twenty times what the answer was the first time is twenty subprocesses.
@@ -251,7 +264,15 @@ pub fn fetch(request: &Request, mut on_event: impl FnMut(Event)) -> Result<Outco
     };
 
     let mut all_playable = true;
+    let mut checked = 0;
     for record in fetched.iter().cloned() {
+        // **Between files, which is the only place stopping is worth doing here.** A re-encode is
+        // minutes of work per song, and somebody who has pressed Stop halfway through a batch of
+        // twenty means the other nineteen.
+        if stopped {
+            break;
+        }
+        checked += 1;
         let verdict = if plan.dry_run {
             Verdict::NotFetched
         } else {
@@ -263,13 +284,16 @@ pub fn fetch(request: &Request, mut on_event: impl FnMut(Event)) -> Result<Outco
             }
         };
         all_playable &= !verdict.blocking();
-        on_event(Event::Arrived { record, verdict });
+        stopped |= on_event(Event::Arrived { record, verdict }) == Flow::Stop;
     }
 
     Ok(Outcome {
-        fetched: fetched.len(),
+        // What was looked at, rather than what yt-dlp wrote. A run stopped halfway must not claim
+        // to have checked the files it never reached.
+        fetched: checked,
         completed,
         all_playable,
+        stopped,
     })
 }
 
@@ -277,7 +301,7 @@ pub fn fetch(request: &Request, mut on_event: impl FnMut(Event)) -> Result<Outco
 fn inspect(
     path: &Path,
     encoders: Option<&profile::Encoders>,
-    on_event: &mut impl FnMut(Event),
+    on_event: &mut impl FnMut(Event) -> Flow,
 ) -> Verdict {
     let report = match check::inspect(path) {
         Ok(report) => report,

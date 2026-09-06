@@ -1,0 +1,50 @@
+{# One directory listing, replacing itself as somebody walks the tree.
+
+   **Every path goes through `|json|safe` inside `hx-vals`, and `|urlencode` inside a query
+   string.** A Windows path written as a bare `"{{ path }}"` is invalid JSON — askama's HTML escaper
+   leaves backslashes alone, so `D:\tunes` carries a `\t` that is a tab and a `\k` that is nothing —
+   `JSON.parse` throws, htmx sends an empty body, and every click is answered "No folder given". The
+   `json` filter serializes in Rust and escapes the HTML-significant characters as `\u00XX`, which
+   is what makes `|safe` correct inside a single-quoted attribute. #}
+<div class="browser">
+  <p class="crumbs">
+    <button class="link" hx-get="/browse?at=" hx-target="#listing" hx-swap="innerHTML"
+            title="every drive on this computer">&#x23F6;</button>
+    {% match listing.up %}
+    {% when Some with (up) %}
+    <button class="link" hx-get="/browse?at={{ up|urlencode }}"
+            hx-target="#listing" hx-swap="innerHTML">..</button>
+    {% when None %}
+    {% endmatch %}
+    <code>{{ listing.shown }}</code>
+  </p>
+
+  {% if !listing.roots %}
+  <p class="here">
+    <button class="primary" hx-post="/out" hx-vals='{"path": {{ listing.at|json|safe }}}'
+            hx-target="body" hx-swap="outerHTML">Use this folder</button>
+  </p>
+  {% endif %}
+
+  {% match listing.error %}
+  {% when Some with (why) %}<p class="message bad">{{ why }}</p>
+  {% when None %}
+  {% endmatch %}
+
+  {% if listing.folders.is_empty() %}
+    {% if listing.error.is_none() %}<p class="note">No folders in here.</p>{% endif %}
+  {% else %}
+  <ul class="folders">
+  {% for folder in listing.folders %}
+    <li>
+      <button class="link" hx-get="/browse?at={{ folder.path|urlencode }}"
+              hx-target="#listing" hx-swap="innerHTML">{{ folder.name }}</button>
+    </li>
+  {% endfor %}
+  </ul>
+  {% endif %}
+
+  {# Handled by ui.js rather than by a route, because closing the browser puts the page back the way
+     it loaded and the server has nothing to say about that. #}
+  <p><button class="link quiet" data-close-browser>Close</button></p>
+</div>

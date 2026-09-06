@@ -1,0 +1,24 @@
+{# What arrived, and what the packaging profile made of each one.
+
+   Redrawn by `_job.html`'s last frame rather than polled on its own: it only changes when a file
+   lands, and the poll that draws the bar is already asking once a second. #}
+<div id="results">
+{% if !results.is_empty() %}
+<section class="panel">
+  <h2>What arrived</h2>
+  <ul class="results">
+  {% for row in results %}
+    <li class="{{ row.tone }}">
+      <span class="name">{{ row.name }}</span>
+      {% if !row.verdict.is_empty() %}<span class="verdict">{{ row.verdict }}</span>{% endif %}
+    </li>
+  {% endfor %}
+  </ul>
+  <p class="note">
+    <strong>In profile</strong> means packaging copies the file's bytes. <strong>Outside</strong> it
+    means packaging will re-encode it, which works and takes time. <strong>Cannot be played</strong>
+    is the pixel format, and is the one thing tick "re-encode" fixes.
+  </p>
+</section>
+{% endif %}
+</div>

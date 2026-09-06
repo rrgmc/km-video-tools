@@ -1,0 +1,36 @@
+[package]
+name = "km-video-downloader"
+description = "A page for fetching karaoke videos: set a folder, paste the links, watch it happen."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+# **No features, and in particular no `desktop`.** km-admin has one that swaps a browser tab for a
+# `wry` webview in a `tao` window, and it is worth having there. It is not reachable here: it also
+# needs `km-tray`, `km-console`, `km-osopen` and `km-logfile`, which are karaokemachine crates.
+# A browser tab is the whole user interface, which means one binary, no `windows_subsystem`, a real
+# stdout, and `println!` that does not panic.
+[dependencies]
+km-video-core = { workspace = true }
+anyhow = { workspace = true }
+askama = { workspace = true }
+axum = { workspace = true }
+clap = { workspace = true }
+directories = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+
+# `tower::ServiceExt::oneshot` drives `router()` as a service, so the route tests bind no socket at
+# all. That is not only tidiness: a test binary's path carries a build hash on Windows, so every
+# rebuild of a test that listens raises a fresh firewall prompt and leaves a dead rule behind.
+[dev-dependencies]
+tower = { workspace = true }
+
+[lints]
+workspace = true
