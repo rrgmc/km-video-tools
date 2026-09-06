@@ -7,6 +7,9 @@
 *.md    text eol=lf
 *.yml   text eol=lf
 *.json  text eol=lf
+*.html  text eol=lf
+*.css   text eol=lf
+*.js    text eol=lf
 
 # **Shell scripts must keep LF wherever they are checked out**, and this one is load-bearing rather
 # than cosmetic. `sh` on Linux and macOS treats a trailing CR as part of the interpreter path, so a
