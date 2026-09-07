@@ -79,3 +79,25 @@ dist_fresh_dir() { # <path>
   rm -rf "$1"
   mkdir -p "$1"
 }
+
+# `zip` first, PowerShell second: `zip` is there on macOS and Linux, and PowerShell is what a stock
+# Windows box has instead -- Git Bash ships no `zip`, so on Windows the first branch is never the one
+# taken. Neither being present leaves the folder in place and says so, because the folder is the
+# deliverable and the archive is a convenience.
+#
+# The same fallback karaokemachine's `dist_zip()` makes, for the same reason.
+dist_zip() { # <parent dir> <folder name>
+  local parent="$1" name="$2"
+  rm -f "$parent/$name.zip"
+  if command -v zip >/dev/null 2>&1; then
+    ( cd "$parent" && zip -qr "$name.zip" "$name" )
+  elif command -v powershell >/dev/null 2>&1; then
+    powershell -NoProfile -Command \
+      "Compress-Archive -Force -Path '$parent/$name' -DestinationPath '$parent/$name.zip'"
+  else
+    echo "dist: neither zip nor powershell is on PATH, so no archive was made. The folder above is"
+    echo "      complete; compress it by hand."
+    return 0
+  fi
+  echo "dist: wrote $parent/$name.zip"
+}
