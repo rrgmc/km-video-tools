@@ -4,10 +4,10 @@
 ; that script assembles the payload, reads the version out of a binary and passes the five defines
 ; below. Compiling this file by hand is possible and needs all five:
 ;
-;   ISCC.exe /DPayload=C:\...\dist\setup\windows\payload /DVersion=1.7.0 ^
+;   ISCC.exe /DPayload=C:\...\dist\setup\windows\payload /DVersion=<version> ^
 ;            /DGenerated=C:\...\dist\setup\windows\generated ^
 ;            /DOutDir=C:\...\dist\setup\windows ^
-;            /DOutBase=km-video-tools-setup-1.7.0-x86_64 tools\platform\windows\installer.iss
+;            /DOutBase=km-video-tools-setup-<version>-x86_64 tools\platform\windows\installer.iss
 ;
 ; **This file names every file it installs.** installer.sh reads the [Files] section back out and
 ; reconciles it against what is actually in the payload, so a file that arrives there and is not
