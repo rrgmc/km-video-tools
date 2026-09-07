@@ -41,6 +41,41 @@ for the run** — it always was: five playlists at `--limit 10` is up to fifty v
 by *index*, before the archive filters, so a video already fetched by a line of its own still
 occupies a slot in the `1:N` of a playlist that contains it.
 
+**And the list may state what is true of all of it**, in a header above the links:
+
+```text
+--cookies-from-browser firefox
+--normalize
+--limit 50
+
+https://youtu.be/aaaaaaaaaaa
+--out anime https://youtu.be/bbbbbbbbbbb
+```
+
+The two are different in kind and that is why both exist. A *marker* says what one line is, and
+costs a yt-dlp run per distinct answer, because `--yes-playlist` and `-P` are properties of an
+invocation. A *header setting* is one field of the plan every run shares, so it splits nothing —
+which is the whole reason the header can carry `--cookies-from-browser` while a line may not.
+
+The header is every line before the first link, blanks and comments included, and it ends at the
+first line that is not a setting. That one rule is what keeps a bare `--playlist` unambiguous: at
+the top it is the run's answer for lines that do not say, and in front of a URL it is that line's.
+A line the header does not understand ends it and becomes a link, so a typo arrives as yt-dlp
+saying it is not a URL, in the words of the program that would know.
+
+**What is asked for wins, where it can be told to have been asked for.** `--limit`, `--format`,
+`--sort` and `--cookies-from-browser` take a value, so *not given* is a thing a command line can
+say and the list is heard. A flag cannot: off and unset are the same `bool`, on a command line as
+much as in a form, so those are the or of the two and a list that says `--subs` cannot be talked
+out of it. In the window the same settings arrive as **ticked boxes** rather than as behaviour —
+the page shows what the list asked for and lets it be changed, which is the only arrangement
+where what is on the screen and what will happen cannot disagree.
+
+A header may not say `--out` (the destination is where the file lives, and a list that moved its
+own folder could not be copied anywhere), nor `--dry-run`, `--strict` or `--show-command` (which
+are properties of an invocation — a folder that always simulates never downloads), nor `--yt-dlp`
+(a fact about a machine, so a copied list would carry a path that is not there).
+
 ## Two things deliberately never passed
 
 Both because they change the file's *stream layout* rather than its content:

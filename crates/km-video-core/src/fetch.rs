@@ -68,6 +68,45 @@ pub struct Request {
     pub progress: Progress,
 }
 
+impl Request {
+    /// Folds in what a list asked for, where this request did not say.
+    ///
+    /// **The caller's to call, and deliberately not something [`fetch`] does for itself.** The
+    /// alternative is a real bug rather than a matter of taste: the page shows a list's settings on
+    /// its own controls so that somebody can see them and change them, and a `fetch` that also
+    /// merged would put back a box they had just unticked. One place applies this, and it is
+    /// whichever place built the request.
+    ///
+    /// # Precedence, and the one wart in it
+    ///
+    /// **What was asked for wins where it can be told to have been asked for.** For the four
+    /// `Option`s that is exact: `None` means nobody said, so the list is heard. For the flags it
+    /// cannot be — a `bool` off is indistinguishable from a `bool` unset, on a command line as much
+    /// as in a form — so those are the *or* of the two, and a list that says `--subs` cannot be
+    /// talked out of it until there is a `--no-subs` to say so with. Said out loud here because it
+    /// reads like an oversight and is not one.
+    pub fn apply_list_settings(&mut self, settings: &list::Settings) {
+        self.plan.playlist |= settings.playlist;
+        self.plan.subs |= settings.subs;
+        self.normalize |= settings.normalize;
+        // The archive is a path rather than a flag by the time it reaches here, so *off* is the
+        // absence of one. Only ever cleared: a list cannot ask for an archive that was refused.
+        if settings.no_archive {
+            self.plan.archive = None;
+        }
+        self.plan.limit = self.plan.limit.or(settings.limit);
+        if self.plan.cookies_from_browser.is_none() {
+            self.plan.cookies_from_browser = settings.cookies_from_browser.clone();
+        }
+        if self.plan.format.is_none() {
+            self.plan.format = settings.format.clone();
+        }
+        if self.plan.sort.is_none() {
+            self.plan.sort = settings.sort.clone();
+        }
+    }
+}
+
 /// One thing that happened, as it happened.
 #[derive(Debug, Clone)]
 pub enum Event {
@@ -413,15 +452,20 @@ fn runs(plan: &args::Plan) -> Result<(Vec<args::Plan>, Scratch)> {
         return Ok((vec![plan.clone()], scratch));
     };
 
-    let entries = list::read(from_file);
+    let (settings, entries) = list::parse(&std::fs::read_to_string(from_file).unwrap_or_default());
     // **A list that says nothing is handed over unread and unrewritten**, byte for byte the argv
     // this tool has always built. That is what keeps a `km-video-fetch.kmvf` somebody maintains by
     // hand from being rewritten behind their back, and what keeps a list carrying things
     // [`crate::list`] does not model — a `;` comment, an option yt-dlp itself understands — working
     // exactly as it did. An unreadable list says nothing, and is yt-dlp's to complain about.
-    if entries
-        .iter()
-        .all(|entry| entry.expand.is_none() && entry.out.is_none())
+    //
+    // **A header counts as saying something**, and has to: `--cookies-from-browser firefox` handed
+    // to `--batch-file` is a line yt-dlp reads as a URL. So the passthrough survives for exactly
+    // the files that say nothing at all, which is what the paragraph above always claimed.
+    if settings == list::Settings::default()
+        && entries
+            .iter()
+            .all(|entry| entry.expand.is_none() && entry.out.is_none())
     {
         return Ok((vec![plan.clone()], scratch));
     }
@@ -717,12 +761,112 @@ mod tests {
         assert!((percent - 10.0).abs() < f32::EPSILON);
     }
 
+    /// The precedence rule, both halves of it.
+    #[test]
+    fn what_was_asked_for_wins_where_it_can_be_told_to_have_been_asked_for() {
+        let said = list::Settings {
+            playlist: true,
+            subs: true,
+            normalize: true,
+            no_archive: true,
+            limit: Some(50),
+            cookies_from_browser: Some("firefox".to_owned()),
+            format: Some("from-the-list".to_owned()),
+            sort: Some("from-the-list".to_owned()),
+        };
+
+        // Nobody said anything, so the list is heard on every one of them.
+        let mut quiet = request_over(plan_asking_nothing());
+        quiet.apply_list_settings(&said);
+        assert!(quiet.plan.playlist && quiet.plan.subs && quiet.normalize);
+        assert_eq!(quiet.plan.archive, None, "--no-archive clears it");
+        assert_eq!(quiet.plan.limit, Some(50));
+        assert_eq!(quiet.plan.cookies_from_browser.as_deref(), Some("firefox"));
+        assert_eq!(quiet.plan.format.as_deref(), Some("from-the-list"));
+        assert_eq!(quiet.plan.sort.as_deref(), Some("from-the-list"));
+
+        // ...and an `Option` that was given is not overruled.
+        let mut asked = request_over(plan_asking_nothing());
+        asked.plan.limit = Some(3);
+        asked.plan.cookies_from_browser = Some("chrome".to_owned());
+        asked.plan.format = Some("from-the-flag".to_owned());
+        asked.apply_list_settings(&said);
+        assert_eq!(asked.plan.limit, Some(3));
+        assert_eq!(asked.plan.cookies_from_browser.as_deref(), Some("chrome"));
+        assert_eq!(asked.plan.format.as_deref(), Some("from-the-flag"));
+    }
+
+    /// A `bool` cannot tell *off* from *unset*, so a flag is the or of the two and a list that
+    /// asks for something cannot be talked out of it. Pinned because it reads like an oversight.
+    #[test]
+    fn a_flag_the_list_set_cannot_be_turned_off_from_outside() {
+        let mut request = request_over(plan_asking_nothing());
+        request.plan.subs = false;
+        request.apply_list_settings(&list::Settings {
+            subs: true,
+            ..list::Settings::default()
+        });
+        assert!(request.plan.subs);
+    }
+
+    /// A header is something said, so the file cannot go to `--batch-file` as it stands: yt-dlp
+    /// would read `--limit 3` as a URL. The passthrough survives for exactly the lists that say
+    /// nothing at all.
+    #[test]
+    fn a_list_with_a_header_is_rewritten_rather_than_handed_over_whole() {
+        let dir = scratch("header");
+        let plan = plan_over(&dir, "--limit 3\n\nhttps://example.invalid/a\n", false);
+
+        let (plans, scratch) = runs(&plan).expect("a header is a run of its own shape");
+        assert_eq!(plans.len(), 1);
+        assert_eq!(
+            plans[0].from_file,
+            Some(dir.join(args::SINGLES_NAME)),
+            "a copy with the header taken off, not the caller's own file"
+        );
+        assert_eq!(
+            std::fs::read_to_string(dir.join(args::SINGLES_NAME)).unwrap(),
+            "https://example.invalid/a\n"
+        );
+
+        drop(scratch);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     /// A folder of this test's own, so two of them cannot tread on each other.
     fn scratch(name: &str) -> PathBuf {
         let dir = std::env::temp_dir().join("km-video-fetch-runs").join(name);
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).expect("a folder to work in");
         dir
+    }
+
+    /// A plan over nothing on disk, for the tests that only look at the fields.
+    fn plan_asking_nothing() -> args::Plan {
+        args::Plan {
+            targets: Vec::new(),
+            from_file: None,
+            playlist: false,
+            out: PathBuf::from("."),
+            limit: None,
+            archive: Some(PathBuf::from(".").join(args::ARCHIVE_NAME)),
+            cookies_from_browser: None,
+            subs: false,
+            format: None,
+            sort: None,
+            dry_run: false,
+            progress_lines: false,
+        }
+    }
+
+    /// A request over a plan, with nothing else asked for.
+    fn request_over(plan: args::Plan) -> Request {
+        Request {
+            plan,
+            yt_dlp: None,
+            normalize: false,
+            progress: Progress::Terminal,
+        }
     }
 
     fn plan_over(out: &Path, list: &str, playlist: bool) -> args::Plan {
