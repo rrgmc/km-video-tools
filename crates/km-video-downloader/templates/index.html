@@ -49,9 +49,11 @@
   <h2>What to fetch</h2>
 
   <label class="field">
-    <span>Links, one per line</span>
+    <span>Links, one per line
+      <small>A line may start with <code>--playlist</code>, <code>--no-playlist</code> or
+        <code>--out&nbsp;folder</code> to say what that one is and where it goes.</small></span>
     <textarea name="urls" rows="6" spellcheck="false"
-              placeholder="https://&hellip;&#10;https://&hellip;"></textarea>
+              placeholder="https://&hellip;&#10;--playlist https://&hellip;&#10;--out anime https://&hellip;"></textarea>
   </label>
 
   <div class="sources">
@@ -79,7 +81,8 @@
     <label class="check">
       <input type="checkbox" name="playlist" {% if playlist %}checked{% endif %}>
       <span>Take the whole playlist
-        <small>Off, a link from a playlist page fetches only that one video.</small></span>
+        <small>Off, a link from a playlist page fetches only that one video. Either way this is
+          the answer for a line that does not say for itself.</small></span>
     </label>
 
     <label class="check">

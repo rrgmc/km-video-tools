@@ -49,10 +49,16 @@ struct Cli {
     ///
     /// With no URLs and no file named, a `km-video-fetch.txt` in the destination folder is read as
     /// this — so a folder can carry its own list, the way it already carries its own archive.
+    ///
+    /// A line may start with `--playlist`, `--no-playlist` or `--out FOLDER` to say what that one
+    /// link is and where it goes, `FOLDER` being under `--out`. A list that says none of those is
+    /// handed to yt-dlp exactly as it is.
     #[arg(long, value_name = "PATH")]
     from_file: Option<PathBuf>,
 
     /// Expand a playlist instead of taking the single video from its URL.
+    ///
+    /// Also the answer for a line in a `--from-file` list that does not say for itself.
     #[arg(long)]
     playlist: bool,
 
