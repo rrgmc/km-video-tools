@@ -29,7 +29,6 @@ ISS="tools/platform/windows/installer.iss"
 TARGET="x86_64"
 BUILD=1
 VERBOSE=0
-APPS=(km-video-downloader km-video-fetch)
 
 for arg in "$@"; do
   case "$arg" in
@@ -103,14 +102,23 @@ echo "== inno setup"
 [ "$VERBOSE" -eq 1 ] && echo "   iscc  $ISCC (version $iscc_major)"
 
 # -- what to carry --------------------------------------------------------------------------------
+#
+# **The payload is `dist/bin/windows`**, which tools/dist/bin.sh produces. That script already knows
+# the two things this one would otherwise have to know a second time: that both staged folders carry
+# a `README.txt` under the same name and one of them has to be renamed, and that a `-console` twin is
+# the printing form of a pair rather than a second program. Restating either here would be two
+# implementations of one rule, and the day they disagree is the day the installer ships the wrong
+# README without anybody noticing.
 
 if [ "$BUILD" -eq 1 ]; then
-  echo "== staging both programs"
+  echo "== staging every program"
+  args=()
+  [ "$VERBOSE" -eq 1 ] && args=(-v)
   if [ "$VERBOSE" -eq 1 ]; then
-    tools/dist/cmd.sh
+    tools/dist/bin.sh "${args[@]+"${args[@]}"}"
   else
     log="$(mktemp)"
-    if ! tools/dist/cmd.sh > "$log" 2>&1; then
+    if ! tools/dist/bin.sh > "$log" 2>&1; then
       cat "$log" >&2
       rm -f "$log"
       echo "installer: staging failed; the log is above." >&2
@@ -120,63 +128,24 @@ if [ "$BUILD" -eq 1 ]; then
   fi
 fi
 
-TRIPLE="$(dist_host_triple)"
+PAYLOAD="$(dist_dir bin windows)"
 
-# The staged folder for one program, found by glob rather than by rebuilding its name: the version is
-# in it and this script has not read one yet, which is the whole ordering problem -- the version comes
-# out of a binary, and the binary is inside the folder being looked for.
-staged_dir() { # <app>
-  local app="$1" match
-  for match in "$(dist_dir "$app" windows)/$app-"*"-$TRIPLE"; do
-    [ -d "$match" ] && { printf '%s' "$match"; return 0; }
-  done
-  return 1
-}
-
-for app in "${APPS[@]}"; do
-  if ! staged_dir "$app" >/dev/null; then
-    echo "installer: nothing staged for $app under $(dist_dir "$app" windows)." >&2
-    if [ "$BUILD" -eq 0 ]; then
-      echo "           --no-build was given, so nothing was staged for it here either. Run this" >&2
-      echo "           script without it, or tools/dist/cmd.sh first." >&2
-    fi
-    exit 1
+if [ ! -d "$PAYLOAD" ]; then
+  echo "installer: nothing gathered at $PAYLOAD." >&2
+  if [ "$BUILD" -eq 0 ]; then
+    echo "           --no-build was given, so nothing was gathered for it here either. Run this" >&2
+    echo "           script without it, or tools/dist/bin.sh first." >&2
   fi
-done
+  exit 1
+fi
 
 OUTDIR="$(dist_dir setup windows)"
-PAYLOAD="$OUTDIR/payload"
 GENDIR="$OUTDIR/generated"
 mkdir -p "$OUTDIR"
-dist_fresh_dir "$PAYLOAD"
 dist_fresh_dir "$GENDIR"
 
-# -- assembling the payload -----------------------------------------------------------------------
-#
-# Two staged folders become one, and the two things that have to change on the way are done here and
-# named out loud rather than left to a wildcard:
-#
-#   * each folder's `README.txt` becomes `README-<app>.txt`, because both would otherwise be the
-#     same filename and the second would win silently;
-#   * the console twin is dropped, for the reason in the header.
-#
-# The licences are identical in both folders and the second copy simply overwrites the first.
-console_twins=0
-for app in "${APPS[@]}"; do
-  src="$(staged_dir "$app")"
-  for entry in "$src"/*; do
-    base="$(basename "$entry")"
-    case "$base" in
-      *-console.exe) console_twins=$((console_twins + 1)); continue ;;
-      README.txt)    cp "$entry" "$PAYLOAD/README-$app.txt" ;;
-      *.app)         continue ;;
-      *)             cp -R "$entry" "$PAYLOAD/$base" ;;
-    esac
-  done
-done
-
 # The installed build's document, in a directory of its own rather than in the payload -- it is not
-# one of the staged folder's files and putting it there would make the reconciliation below a lie.
+# one of the gathered folder's files, and putting it there would make the reconciliation below a lie.
 dist_installed_readme windows > "$GENDIR/README.txt"
 
 # -- what the .iss says it installs, against what is actually there --------------------------------
@@ -197,14 +166,20 @@ while IFS= read -r spec; do
 done < <(sed -n 's/^ *Source: *"{#Payload}\\\([^"]*\)".*/\1/p' "$ISS" | tr '\\' '/')
 
 sort -u "$covered" -o "$covered"
-find "$PAYLOAD" -type f | sort -u > "$present"
+
+# **`README.txt` is subtracted by name, and it is the one file left out on purpose rather than by
+# omission.** It is the document tools/dist/bin.sh writes for `dist/bin/windows`, describing a folder
+# somebody unpacked -- right about that folder and wrong about an installed build in most of its
+# sentences. An installed build gets `dist_installed_readme`'s text from {#Generated} instead. The
+# per-program `README-*.txt` are still installed, and are named in [Files] like everything else.
+find "$PAYLOAD" -type f -not -path "$PAYLOAD/README.txt" | sort -u > "$present"
 
 unaccounted="$(comm -23 "$present" "$covered" || true)"
 if [ -n "$unaccounted" ]; then
   echo "installer: the payload holds files that $ISS does not install:" >&2
   printf '%s\n' "$unaccounted" | sed "s|^$PAYLOAD/|             |" >&2
-  echo "           Add them to [Files] with the component that needs them, or subtract them where" >&2
-  echo "           the payload is assembled. Nothing is dropped from a carrier by accident." >&2
+  echo "           Add them to [Files] with the component that needs them, or stop tools/dist/bin.sh" >&2
+  echo "           gathering them. Nothing is dropped from a carrier by accident." >&2
   exit 1
 fi
 
@@ -278,7 +253,6 @@ echo "dist: wrote $SETUP"
 echo "      version     $VERSION"
 echo "      components  ${COMPONENTS[*]}"
 echo "      bytes       $(wc -c < "$SETUP" | tr -d ' ')"
-[ "$console_twins" -eq 0 ] || echo "      left out    $console_twins console twin(s), by design"
 
 # -- the round trip -------------------------------------------------------------------------------
 #

@@ -92,8 +92,13 @@ dist_zip() { # <parent dir> <folder name>
   if command -v zip >/dev/null 2>&1; then
     ( cd "$parent" && zip -qr "$name.zip" "$name" )
   elif command -v powershell >/dev/null 2>&1; then
+    # `host_path` and not the bare path: PowerShell is a Windows program, and a Git Bash absolute
+    # path reaches it as `\tmp\tmp.XXXX`, which it reports as a path that does not exist. A relative
+    # path happens to survive, which is why this only surfaced once an archive was built out of a
+    # temp directory rather than out of dist/.
+    local hp; hp="$(host_path "$parent")"
     powershell -NoProfile -Command \
-      "Compress-Archive -Force -Path '$parent/$name' -DestinationPath '$parent/$name.zip'"
+      "Compress-Archive -Force -Path '$hp/$name' -DestinationPath '$hp/$name.zip'"
   else
     echo "dist: neither zip nor powershell is on PATH, so no archive was made. The folder above is"
     echo "      complete; compress it by hand."
@@ -215,4 +220,26 @@ MACOS
       return 1
       ;;
   esac
+}
+
+# The same zip, for a folder whose own name is not the name the archive should carry.
+#
+# **A zip's top-level entry is a directory name somebody is going to be looking at**, and that is the
+# whole reason this exists rather than a `mv` after the fact. `tools/dist/bin.sh` gathers into
+# `dist/bin/<platform>`, because that is what the folder is *called* -- but an archive of it unpacking
+# to `windows/` tells its recipient nothing, so it is renamed on the way in.
+dist_zip_as() { # <folder> <archive path without .zip>
+  local folder="$1" out="$2" parent name tmp
+  parent="$(dirname "$out")"
+  name="$(basename "$out")"
+  mkdir -p "$parent"
+  tmp="$(mktemp -d)"
+  cp -R "$folder" "$tmp/$name"
+  # Quiet, because `dist_zip` names the file it wrote and the file it writes here is a temporary one
+  # in a directory nobody will look in. The line worth printing is the one below.
+  dist_zip "$tmp" "$name" >/dev/null
+  rm -f "$out.zip"
+  mv "$tmp/$name.zip" "$out.zip"
+  rm -rf "$tmp"
+  echo "dist: wrote $out.zip"
 }

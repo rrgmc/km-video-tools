@@ -37,9 +37,10 @@ vars:
   SH:
     sh: '{{if eq OS "windows"}}p=$(git --exec-path); echo "${p%/mingw*}/bin/bash.exe"{{else}}echo bash{{end}}'
 
-  # Set on the command line: `task dist:setup VERBOSE=1`. Declared here so that `{{if .VERBOSE}}` is
-  # false rather than an error when nothing was passed.
+  # Set on the command line: `task dist:setup VERBOSE=1`, `task dist:bin ZIP=1`. Declared here so
+  # that `{{if .VERBOSE}}` is false rather than an error when nothing was passed.
   VERBOSE: ''
+  ZIP: ''
 
 tasks:
   default:
@@ -103,6 +104,25 @@ tasks:
     desc: The same, plus a versioned .zip of each folder
     cmds:
       - '"{{.SH}}" tools/dist/cmd.sh --zip {{.CLI_ARGS}}'
+
+  # One folder with all of it in it, which is the other question people ask of a build. `task dist`
+  # answers "what is a release" -- a folder per program, each carrying its own version; this answers
+  # "give me everything", which otherwise means unpacking two folders and merging them by hand. The
+  # merge has a trap in it, which is the reason this is a script rather than advice: both staged
+  # folders carry a `README.txt` and the two licence texts under the same names, so a plain copy
+  # keeps one README and silently loses the other.
+  #
+  # **Two folders, not one.** `dist/bin/<platform>` holds the form you double-click and
+  # `dist/bin-console/<platform>` the form that prints, which on Windows is a pair of executables and
+  # on macOS a bundle beside a bare binary. Anything with only one form is in both.
+  #
+  # **Not part of `task dist`**, for the reason `dist:setup` is not: it runs tools/dist/cmd.sh itself,
+  # so folding it in would stage every program twice. `task dist:bin -- --no-build` is the fast path
+  # when something has already staged.
+  dist:bin:
+    desc: 'Stage one folder with every executable this platform can build (ZIP=1 VERBOSE=1)'
+    cmds:
+      - '"{{.SH}}" tools/dist/bin.sh {{if .ZIP}}--zip{{end}} {{if .VERBOSE}}--verbose{{end}} {{.CLI_ARGS}}'
 
   # The setup program, which is a carrier rather than a folder: one installer holding both programs,
   # with a checkbox for each. The fan-out is not an `if`: both arms are called unconditionally and the
