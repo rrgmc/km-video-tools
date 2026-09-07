@@ -19,8 +19,17 @@ name: ci
 # **`fail-fast: false`**, because the whole point is that one runner sees what the other cannot, and a
 # cancelled job is a platform that did not report.
 #
-# **No `--all-features`.** There are no features today, so the flag is a no-op; it is also a broken
-# job the day a member gains one, and removing it before it is needed is cheaper than after.
+# **No `--all-features`.** The workspace has exactly one feature — `km-video-downloader/desktop`,
+# and it is on by default — so the flag would select precisely what these commands already build and
+# prove nothing the job does not already prove. It is also a broken job the day a member gains a
+# feature that is not merely additive, and adding it before it is needed is a cost with no matching
+# benefit.
+#
+# **What that leaves unbuilt is the off position.** `--no-default-features` is the browser-only
+# program, the one a Linux machine without libwebkit2gtk needs, and it is the only configuration in
+# which `wry`, `tao` and `muda` are absent — so it is the one that can break without anything here
+# noticing. Nothing in this file compiles it. See `It is an application with a window, not a program
+# that prints an address` in docs/decisions.md.
 
 on:
   push:
