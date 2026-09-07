@@ -2,7 +2,7 @@
 //!
 //! # Why a subprocess rather than a library
 //!
-//! karaokemachine reads the same facts through `ffmpeg-next`, in `crates/playback/km-video`, and
+//! The karaoke app reads the same facts through `ffmpeg-next`, in `crates/playback/km-video`, and
 //! that is right there: it is already decoding the pictures, so the container is open anyway.
 //!
 //! Here it would be a bad trade. `km-video` is `#![cfg(feature = "ffmpeg")]` at crate level over an

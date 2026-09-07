@@ -14,7 +14,7 @@ its events become lines or a progress bar.
 
 ## What it is for
 
-A karaoke machine that plays video songs wants one shape and not seventeen: **H.264 in 8-bit 4:2:0,
+A karaoke app that plays video songs wants one shape and not seventeen: **H.264 in 8-bit 4:2:0,
 at most 1080p30, AAC audio, in MP4**. A download that took whatever a site offered arrives as VP9 at
 60 fps and costs an hour of re-encoding per song; a download that *asked* for AVC and AAC arrives in
 profile and gets copied.

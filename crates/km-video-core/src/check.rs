@@ -3,14 +3,14 @@
 //! Glue over [`crate::probe`] and [`crate::profile`], and it is worth its own module because the
 //! sequence matters: probe, then measure, then — only if asked — re-encode through a temporary name.
 //!
-//! **This used to be optional and no longer is.** In karaokemachine the module sat behind a
+//! **This used to be optional and no longer is.** In the karaoke app the module sat behind a
 //! default-off `video` feature, because reaching the profile meant linking ffmpeg; a build without
 //! the feature downloaded exactly as well and simply could not say whether what landed was playable.
 //! Reading a file through `ffprobe` costs no linkage, so the feature is gone and the answer is
 //! always given.
 //!
 //! Nothing here restates what the profile is — [`crate::profile`] is where that lives, and it in
-//! turn is a copy of karaokemachine's, which is the authoritative one.
+//! turn is a copy of the karaoke app's, which is the authoritative one.
 
 use std::path::{Path, PathBuf};
 

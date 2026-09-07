@@ -1,9 +1,9 @@
 //! Opening the page in whatever browser this computer uses.
 //!
-//! Fifteen lines rather than a dependency. karaokemachine has a crate for this — it has to, because
-//! it opens files of half a dozen kinds from three programs, on a phone as well as a desktop. Here
-//! there is one caller and one kind of thing to open, and the whole of the platform difference is
-//! which of three commands to run.
+//! Fifteen lines rather than a dependency. The karaoke app has a crate for this — it has to,
+//! because it opens files of half a dozen kinds from three programs, on a phone as well as a
+//! desktop. Here there is one caller and one kind of thing to open, and the whole of the platform
+//! difference is which of three commands to run.
 //!
 //! **Failing to open a browser is not a failure to start.** The banner has already said where the
 //! page is; if this cannot manage it, the answer is one sentence and a URL somebody can paste.

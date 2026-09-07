@@ -139,7 +139,7 @@ dist_fresh_dir() { # <path>
 # taken. Neither being present leaves the folder in place and says so, because the folder is the
 # deliverable and the archive is a convenience.
 #
-# The same fallback karaokemachine's `dist_zip()` makes, for the same reason.
+# The same fallback the karaoke app's `dist_zip()` makes, for the same reason.
 dist_zip() { # <parent dir> <folder name>
   local parent="$1" name="$2"
   rm -f "$parent/$name.zip"

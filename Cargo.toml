@@ -2,9 +2,10 @@
 resolver = "3"
 # A glob rather than a list, and that is the one decision this file makes that is about the future.
 # The repository exists to hold more than one program -- `km-video-fetch` is the command line, and a
-# local web UI in the shape of karaokemachine's `km-package-builder` is planned beside it -- so a new
-# member is a new directory and nothing else. `crates/km-video-core` is where anything two programs
-# would both need lives; a binary crate here should be a command line and its output, and little more.
+# local web UI in the shape of the karaoke app's `km-package-builder` is planned beside it -- so a
+# new member is a new directory and nothing else. `crates/km-video-core` is where anything two
+# programs would both need lives; a binary crate here should be a command line and its output, and
+# little more.
 members = ["crates/*"]
 
 [workspace.package]
@@ -33,7 +34,7 @@ clap = { version = "4.6.6", features = ["derive"] }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
 
-# The web UI's half. Every version here is the one karaokemachine pins for the same crate, so a
+# The web UI's half. Every version here is the one the karaoke app pins for the same crate, so a
 # person moving between the two repositories meets one axum and one askama rather than two.
 #
 # **No `ws` on axum and no `tower-http` at all.** The first is for a push channel this does not have;

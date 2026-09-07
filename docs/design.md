@@ -1,7 +1,7 @@
 # How `km-video-fetch` works, and why it works that way
 
-Carried out of karaokemachine's `docs/architecture/video.md` when the tool moved. Everything here was
-learned by running it.
+Carried out of the karaoke app's `docs/architecture/video.md` when the tool moved. Everything here
+was learned by running it.
 
 ## What it owns is the argv, and only the argv
 
@@ -86,8 +86,8 @@ Both because they change the file's *stream layout* rather than its content:
   reported as a file the machine cannot play. `probe.rs` skips a stream marked `attached_pic`, so
   there are two guards rather than one; a file fetched by other means can still arrive carrying cover
   art.
-- **`--embed-subs`.** It muxes a `mov_text` stream, and karaokemachine decided not to index a video's
-  captions. Available behind `--subs` for anyone who wants them.
+- **`--embed-subs`.** It muxes a `mov_text` stream, and the karaoke app decided not to index a
+  video's captions. Available behind `--subs` for anyone who wants them.
 
 **Restricting filenames to ASCII is refused for a different reason**: this material is Japanese and
 Korean, the stem is the title of last resort, and mangling it is worse than a long one.

@@ -42,7 +42,7 @@ use clap::Parser;
 
 /// The port nothing else in this family uses.
 ///
-/// 8177 is the karaoke machine, 8178 its package builder, 8179 the singer's remote and 8180
+/// 8177 is the karaoke app, 8178 its package builder, 8179 the singer's remote and 8180
 /// `km-admin`. This is the next one, and the adjacency is the convention rather than a coincidence:
 /// somebody with two of these running should be able to guess the second port from the first.
 pub const DEFAULT_PORT: u16 = 8181;

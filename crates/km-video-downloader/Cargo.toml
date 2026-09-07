@@ -30,7 +30,7 @@ required-features = ["desktop"]
 
 # **On by default, and that is a change of mind.** The first version of this crate had no `desktop`
 # feature at all, on the grounds that km-admin's needs a tray, a console shim and an opener that are
-# karaokemachine crates. Two of those turned out not to be needed and the third is fifteen lines
+# the karaoke app's crates. Two of those turned out not to be needed and the third is fifteen lines
 # here — and what the decision actually cost was the thing the program is for: double-clicking it
 # opened a console showing an address rather than an application.
 #

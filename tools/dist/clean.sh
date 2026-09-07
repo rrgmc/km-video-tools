@@ -134,8 +134,8 @@ VERSION="$(pkg_version -p km-video-fetch)"
 # tools/dist/common.sh. So it is `--all`, or `rm -rf` by hand, and saying so here is the whole of the
 # fix.
 #
-# One separator rather than karaokemachine's two: everything here is `<app>-<version>-<triple>`, and
-# the `_` its `sweep` also strips is for a Debian package this repository does not build.
+# One separator rather than the karaoke app's two: everything here is `<app>-<version>-<triple>`,
+# and the `_` its `sweep` also strips is for a Debian package this repository does not build.
 sweep() { # <app> <wanted version> <path>...
   local app="$1" want="$2" e base rest v
   shift 2

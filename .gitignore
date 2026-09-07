@@ -14,3 +14,7 @@ km-video-fetch-records.jsonl
 # A scratch data directory for a run started from a session here, per the verification notes in
 # the README. Never the default one, which is the owner's own.
 /local
+
+# Notes for a session working here, and only for one. They describe this checkout rather than the
+# project, so they stay out of it.
+/CLAUDE.local.md
