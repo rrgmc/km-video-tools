@@ -48,6 +48,11 @@ use anyhow::{Result, bail};
 /// The characters that start a comment, taken from yt-dlp's own `--batch-file`.
 const COMMENT: [char; 3] = ['#', ';', ']'];
 
+/// What a folder named by a line may not contain, on any platform. See [`destination`].
+///
+/// The two characters that decide how a path is *parsed*, and that only Windows parses.
+const NOT_IN_A_NAME: [char; 2] = ['\\', ':'];
+
 /// Said of a line that is a whole playlist.
 pub const EXPAND_MARKER: &str = "--playlist";
 
@@ -251,12 +256,37 @@ pub fn write(path: &Path, entries: &[Entry]) -> Result<()> {
 /// between two machines writes into whatever happens to sit beside the destination on the second
 /// one, which is a mess to discover afterwards and free to refuse now.
 ///
-/// The rule is one sentence and covers every shape at once: **every component must be an ordinary
-/// name.** That turns down `..`, a leading separator, a drive letter, a `C:relative` and a UNC
-/// prefix without naming any of them, and it means the same thing on both platforms.
+/// The rule is in two halves. **Every component must be an ordinary name**, which turns down `..`, a
+/// leading separator, a drive letter, a `C:relative` and a UNC prefix without naming any of them —
+/// and **the text may not contain a backslash or a colon**, checked before anything parses it, which
+/// is what makes the first half mean the same thing wherever it runs.
+///
+/// **The second half is not belt and braces; the first half alone is platform-dependent.** `\` and
+/// `:` are the two characters that decide how a path is *parsed*, and only Windows parses them:
+/// `Path::components` on Unix splits on `/` and nothing else, so `anime\openings` there is one
+/// perfectly ordinary name, while Windows makes it two nested folders — and *neither* answer looks
+/// wrong to a check that asks the components, because on Windows the separator has been eaten by
+/// then and both names come back spotless. A list is a file that moves between machines, and one
+/// that sorts a corpus two ways depending on where it ran is the same fault `--windows-filenames` is
+/// forced on every platform to prevent — see [`crate::args::argv`].
+///
+/// On Windows this is very nearly a no-op, those shapes being refused as a `Prefix` or a `RootDir`
+/// already. The one thing it genuinely adds there is `ab:cd`, which is an ordinary component to
+/// `Path` and an illegal filename to Windows, `:` being what opens an alternate data stream.
+///
+/// **Deliberately not the rest of Windows' illegal set** — `< > " | ? *`, trailing dots, `CON` and
+/// its siblings. Those decide whether a name is *valid*, not how a path is *structured*: `--out a?b`
+/// fails at `create_dir_all` in the operating system's own words, which is a fine way to find out,
+/// whereas `--out a\b` quietly means something else. Structure is the line worth drawing here;
+/// drawing it wider would be inventing a filename policy this module has no business owning.
 pub fn destination(root: &Path, said: &str) -> Result<PathBuf> {
     let said = said.trim();
+    // **The text, before anything parses it.** Asking this of the *components* would be asking the
+    // parser, and the parser is the thing that differs: Windows takes the backslash in
+    // `anime\openings` as a separator and hands back two spotless ordinary names, while Unix hands
+    // back one. Only the string itself is the same on both.
     let ordinary = !said.is_empty()
+        && !said.contains(NOT_IN_A_NAME)
         && Path::new(said)
             .components()
             .all(|part| matches!(part, Component::Normal(_)));
@@ -489,6 +519,11 @@ mod tests {
 
     /// One rule, every shape. Written out at length because each of these is a different way of
     /// leaving the folder and a check that caught four of the five would look correct.
+    ///
+    /// **Every case here is refused on whichever machine the suite runs on**, which is the point and
+    /// is not what `Component::Normal` gives on its own. Unix splits a path on `/` and nothing else,
+    /// so the four written with backslashes are single ordinary names there and were accepted until
+    /// CI said so. Do not simplify this back to trusting the platform's parser.
     #[test]
     fn a_destination_is_a_folder_under_the_one_asked_for_and_never_beside_it() {
         let root = Path::new("songs");
@@ -510,6 +545,12 @@ mod tests {
             r"C:\Windows",
             "C:relative",
             r"\\server\share",
+            // One name on Unix and two nested folders on Windows, which is the whole reason the
+            // rule names these characters rather than leaving them to `Component::Normal`.
+            r"anime\openings",
+            // An ordinary component to `Path` even on Windows, and an illegal filename to Windows
+            // itself: `:` is what opens an alternate data stream.
+            "ab:cd",
             "",
             "   ",
         ] {
