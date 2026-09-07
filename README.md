@@ -33,7 +33,7 @@ km-video-downloader                    # the same thing, with a window
 ```
 
 A folder remembers what has already been fetched into it (`.km-fetched.txt`), and can carry its own
-list of what to fetch (`km-video-fetch.txt`), so re-running over a playlist picks up only what is
+list of what to fetch (`km-video-fetch.kmvf`), so re-running over a playlist picks up only what is
 new. The page reads that list too, and offers it as one click when it is there.
 
 A line of such a list may say what it is and where it goes, which is the only way to fetch a mix of
@@ -54,6 +54,20 @@ https://youtu.be/aaaaaaaaaaa
 and each folder keeps its own `.km-fetched.txt`, because what is already in a folder is a fact about
 that folder. A list with none of these markers in it is an ordinary yt-dlp batch file and is handed
 over as one.
+
+**`.kmvf` rather than `.txt`, and the extension is the point.** A list is a document with a grammar,
+and `.txt` is the one thing that cannot say so to an operating system. With an extension of its own
+it carries the program's icon and opens by double-clicking:
+
+```sh
+km-video-downloader anime.kmvf     # the window, that list filled in, nothing fetched
+```
+
+The output folder moves to the list's own folder and the list is offered ticked; pressing Fetch is
+still yours. Opening a second one while the window is up hands it to that window rather than starting
+a second copy. **Two different rules, worth keeping apart:** a folder's own list is the one file
+named exactly `km-video-fetch.kmvf` sitting in it, while the association is on the extension and
+opens any such file anywhere.
 
 ## The window
 
@@ -135,21 +149,26 @@ everything twice.
 On **Windows** it writes `dist/setup/windows/km-video-tools-setup-<version>-x86_64.exe`, an
 [Inno Setup](https://jrsoftware.org/isinfo.php) installer that puts both programs in
 `%LOCALAPPDATA%\Programs` **for your account only** — so it raises no UAC prompt — offers to add
-itself to your `PATH`, and takes that entry back out when uninstalled. It needs Inno Setup 6
-(`winget install JRSoftware.InnoSetup`), which it looks for in the per-user location `winget` uses
-before the Program Files ones.
+itself to your `PATH` and to open `.kmvf` files with the downloader, and takes both back out when
+uninstalled. It needs Inno Setup 6 (`winget install JRSoftware.InnoSetup`), which it looks for in the
+per-user location `winget` uses before the Program Files ones.
 
 On **macOS** it writes `dist/setup/macos/km-video-tools-setup-<version>-<arch>.pkg`, an Apple
 installer package: the application goes to `/Applications` and `km-video-fetch` to
 `/usr/local/km-video-tools`, with a symlink in `/usr/local/bin`, which is already on your `PATH` —
-so there is no “add me to your `PATH`” tick and nothing edits a `.zshrc`. It needs nothing that is
-not already in the base system, and asks for your administrator password once.
+so there is no “add me to your `PATH`” tick and nothing edits a `.zshrc`. There is no tick for the
+`.kmvf` association either: the application bundle declares the file type and LaunchServices notices
+it, so removing the application removes the association with it. It needs nothing that is not already
+in the base system, and asks for your administrator password once.
 
 Both **round-trip themselves on every build** — install into a scratch location, run each program,
-uninstall, and assert nothing was left behind. Both are **unsigned**, so a recipient meets
-SmartScreen or Gatekeeper on a first run; the fix for that is a purchased certificate rather than a
-build step. Neither installer touches your downloaded videos or your settings when removed, and each
-says so on its way out.
+uninstall, and assert nothing was left behind. The Windows one installs the association too and reads
+the keys back with `reg.exe`, which is the only way to catch a `[Registry]` entry Inno skipped: a
+mistyped condition would otherwise produce a clean build and an installer that associates nothing.
+
+Both are **unsigned**, so a recipient meets SmartScreen or Gatekeeper on a first run; the fix for
+that is a purchased certificate rather than a build step. Neither installer touches your downloaded
+videos or your settings when removed, and each says so on its way out.
 
 ## Layout
 

@@ -205,6 +205,21 @@ case " ${COMPONENTS[*]} " in
      exit 1 ;;
 esac
 
+# -- the extension and the class it points at, read out of the .iss as well -----------------------
+#
+# Parsed for the third time and the third reason. These two are what the round trip below looks for
+# in the registry, and a copy of them written out here would be a copy that can disagree -- with the
+# failure landing on the *assertion* rather than on the installer, which is the worst way round: a
+# correct build reported as broken teaches somebody to distrust the check.
+iss_define() { # <name>
+  sed -n "s/^#define *$1 *\"\([^\"]*\)\".*/\1/p" "$ISS" | head -n 1
+}
+EXTENSION="$(iss_define Extension)"
+PROGID="$(iss_define ProgId)"
+[ -n "$EXTENSION" ] && [ -n "$PROGID" ] \
+  || { echo "installer: no Extension/ProgId defined in $ISS; the association cannot be checked." >&2
+       exit 1; }
+
 # -- the version ----------------------------------------------------------------------------------
 #
 # From the binary, never the manifest: every crate here says `version.workspace = true`, so reading
@@ -277,10 +292,18 @@ trap 'rm -f "$covered" "$present"; cleanup_scratch' EXIT
 echo "== round trip"
 
 components="$(IFS=,; printf '%s' "${COMPONENTS[*]}")"
-# `/TASKS=""` on purpose: a silent verification install must change nothing outside the scratch
-# directory, and both tasks this installer offers -- the PATH entry and the desktop icon -- do.
+# **One task of the three, and choosing which is the point.**
+#
+# `addpath` and `desktopicon` stay off: a build machine's PATH is not this script's to grow, and a
+# desktop this script did not put anything on is one it does not have to tidy.
+#
+# `associate` is on, and it is the exception on purpose. It writes real keys under HKCU -- outside
+# the scratch directory, like the Start Menu group and the uninstall row already are -- and *that
+# is what needs proving*. An association nobody has ever installed is an association nobody has
+# ever removed either, and a setup program leaving a dead handler behind after an uninstall is
+# exactly the failure this round trip exists to find. Both halves are asserted below.
 MSYS2_ARG_CONV_EXCL='*' "./$SETUP" /VERYSILENT /SP- /NORESTART \
-  /TASKS="" "/COMPONENTS=$components" "/DIR=$(host_path "$SCRATCH/app")"
+  /TASKS="associate" "/COMPONENTS=$components" "/DIR=$(host_path "$SCRATCH/app")"
 
 # Inno's Setup.exe extracts itself and hands the work to a second process, so the first one returning
 # does not mean the install has finished. The uninstaller appearing is what does.
@@ -311,6 +334,45 @@ grep -q "This was installed for your account only" "$SCRATCH/app/README.txt" \
 grep -q "^km-video-downloader $VERSION" "$SCRATCH/app/README.txt" \
   && { echo "installer: a staged folder's README.txt was installed instead." >&2; exit 1; }
 
+# The association, which is the one thing this install put outside the scratch directory.
+#
+# **Read back with `reg.exe` rather than trusted.** Inno reports nothing about a [Registry] entry it
+# skipped, so a mistyped `Tasks:` or a `Components:` that never matches produces a successful build
+# and an installer that quietly associates nothing.
+reg_default() { # <key> -> its default value, or nothing
+  MSYS2_ARG_CONV_EXCL='*' reg.exe query "$1" /ve 2>/dev/null \
+    | sed -n 's/.*REG_SZ[[:space:]]*//p' | tr -d '\r'
+}
+kmvf_class() { # -> the ProgId the extension points at, or nothing
+  reg_default "HKCU\\Software\\Classes\\$EXTENSION"
+}
+kmvf_command() { # -> the command line Windows would run for one
+  reg_default "HKCU\\Software\\Classes\\$PROGID\\shell\\open\\command"
+}
+# The Open with registration, which is a *key* rather than a value and so has to be asked for
+# differently. It caught a real leftover: `uninsdeletekey` on the SupportedTypes key below it
+# removed that and stopped, leaving an empty `Applications\km-video-downloader.exe` behind -- a
+# program with nothing on the machine still listed in the registry.
+kmvf_openwith() { # -> the key's own path, or nothing
+  MSYS2_ARG_CONV_EXCL='*' \
+    reg.exe query 'HKCU\Software\Classes\Applications\km-video-downloader.exe' 2>/dev/null \
+    | sed -n 's/^HKEY.*/present/p' | head -n 1
+}
+
+[ "$(kmvf_class)" = "$PROGID" ] \
+  || { echo "installer: $EXTENSION was not associated; it points at '$(kmvf_class)'." >&2; exit 1; }
+
+# The path must be quoted, or Windows hands over only what precedes the first space -- and the
+# scratch directory this ran in is the shape that would still pass unquoted.
+case "$(kmvf_command)" in
+  '"'*'km-video-downloader.exe" "%1"') ;;
+  *) echo "installer: the open command is not a quoted exe and a quoted %1: $(kmvf_command)" >&2
+     exit 1 ;;
+esac
+
+[ "$(kmvf_openwith)" = present ] \
+  || { echo "installer: km-video-downloader was not offered in Open with." >&2; exit 1; }
+
 MSYS2_ARG_CONV_EXCL='*' "$SCRATCH/app/unins000.exe" /VERYSILENT /NORESTART || true
 # The uninstaller relaunches itself from a temp copy, so the process exiting is not the end of it.
 for _ in $(seq 1 60); do
@@ -319,4 +381,13 @@ for _ in $(seq 1 60); do
 done
 [ -d "$SCRATCH/app" ] && { echo "installer: the uninstaller left $SCRATCH/app behind." >&2; exit 1; }
 
-echo "      installed both programs, ran each, uninstalled, folder gone"
+# The other half, and the one an uninstaller is likeliest to get wrong: a list on this machine must
+# no longer open a program that is no longer here.
+[ -z "$(kmvf_class)" ] \
+  || { echo "installer: the uninstaller left $EXTENSION pointing at '$(kmvf_class)'." >&2; exit 1; }
+[ -z "$(kmvf_command)" ] \
+  || { echo "installer: the uninstaller left the ProgId behind: $(kmvf_command)" >&2; exit 1; }
+[ -z "$(kmvf_openwith)" ] \
+  || { echo "installer: the uninstaller left the Open with registration behind." >&2; exit 1; }
+
+echo "      installed both programs, ran each, associated $EXTENSION, uninstalled, nothing left"

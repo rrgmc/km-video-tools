@@ -15,7 +15,7 @@ use axum::response::{IntoResponse, Response};
 use km_video_core::{args, fetch, list};
 
 use crate::browse;
-use crate::server::State;
+use crate::server::{OPENED_MARK, State};
 
 /// `POST /out` — set the folder the files go into.
 ///
@@ -37,6 +37,40 @@ pub async fn set_out(AxumState(state): AxumState<State>, body: String) -> Respon
     state.remember(settings);
 
     crate::views::render_page(&state)
+}
+
+/// `POST /opened` — a list somebody opened, handed over by a copy of this program that could not
+/// start.
+///
+/// **The port is the handoff.** A second copy launched by a double-click finds this one already
+/// listening and, rather than exiting without a word, posts the path here and stops. This is the
+/// instance with the window, so this is the instance that answers — it takes the list, moves the
+/// folder to that list's folder, and wakes its window so the page is redrawn showing it.
+///
+/// **It grants nothing new.** Anything that can reach this port can already post `/out` and
+/// `/fetch` and make this program write files wherever it likes; that is what being an
+/// unauthenticated server on loopback has always meant here. One more endpoint on that surface is
+/// not one more capability.
+///
+/// Every answer carries [`crate::server::OPENED_MARK`], the refusals included, which is how the copy
+/// handing over tells this program from whatever else might have taken the port — and tells *this
+/// program said no* from *that port is somebody else's*.
+pub async fn opened(AxumState(state): AxumState<State>, body: String) -> Response {
+    let fields = Fields::parse(&body);
+    let Some(path) = fields.one("path") else {
+        return refused(&format!("{OPENED_MARK}: no list was given"));
+    };
+
+    let list = browse::tidy(&path);
+    if !state.open_list(&list) {
+        return refused(&format!(
+            "{OPENED_MARK}: there is no file at {}",
+            list.display()
+        ));
+    }
+    state.wake();
+
+    OPENED_MARK.into_response()
 }
 
 /// `POST /fetch` — start one.
@@ -213,6 +247,16 @@ fn write_asked(out: &std::path::Path, entries: &[list::Entry]) -> anyhow::Result
     Ok(path)
 }
 
+/// One of the two lists the form names by path rather than by contents.
+///
+/// **Unreadable is empty rather than an error**, which is [`list::read`]'s own rule: the file may
+/// have been deleted between the page being drawn and Fetch being pressed, and a list nobody can
+/// read says nothing.
+fn read_list(path: Option<&str>) -> String {
+    path.and_then(|list| std::fs::read_to_string(list).ok())
+        .unwrap_or_default()
+}
+
 /// Everything the Fetch form carries.
 #[derive(Debug, Default)]
 struct Form {
@@ -222,6 +266,8 @@ struct Form {
     picked: String,
     /// Whether to take the folder's own list as well.
     own_list: Option<String>,
+    /// Whether to take the list this run was opened with as well.
+    opened_list: Option<String>,
     playlist: bool,
     normalize: bool,
     subs: bool,
@@ -256,6 +302,9 @@ impl Form {
                 // location of a picked file, and does not need to: the lines are the whole point.
                 "list" => form.picked = text,
                 "own_list" => form.own_list = (!text.trim().is_empty()).then_some(text),
+                // A path again rather than contents, for `own_list`'s reason: this file was named
+                // by a double-click on this machine, so the server can simply read it.
+                "opened_list" => form.opened_list = (!text.trim().is_empty()).then_some(text),
                 "playlist" => form.playlist = true,
                 "normalize" => form.normalize = true,
                 "subs" => form.subs = true,
@@ -273,22 +322,24 @@ impl Form {
         Ok(form)
     }
 
-    /// Every link the form named, from whichever of the three ways it was given.
+    /// Every link the form named, from whichever of the four ways it was given.
     ///
-    /// All three at once is allowed and is not a mistake somebody should be told off for: pasting
+    /// All four at once is allowed and is not a mistake somebody should be told off for: pasting
     /// two links beside a picked file of forty means forty-two, and duplicates are dropped rather
     /// than fetched twice.
     ///
     /// **`list::merge` rather than a `dedup` here**, and the difference is not cosmetic:
     /// `Vec::dedup` drops only *consecutive* equals, so a link present in both the textarea and the
     /// picked file used to survive it and be fetched twice — the sentence above was not true.
+    ///
+    /// **The order is the order of precedence**, because merging keeps a link's first mention and
+    /// the marker that came with it: what somebody typed or picked on the page just now, then the
+    /// list they opened this program with, then what the folder says about itself. Each is a
+    /// stronger statement of intent than the one after it.
     fn entries(&self) -> Vec<list::Entry> {
-        let own = self
-            .own_list
-            .as_ref()
-            .and_then(|list| std::fs::read_to_string(list).ok())
-            .unwrap_or_default();
-        list::merge(&[&self.typed, &self.picked, &own])
+        let opened = read_list(self.opened_list.as_deref());
+        let own = read_list(self.own_list.as_deref());
+        list::merge(&[&self.typed, &self.picked, &opened, &own])
     }
 }
 
@@ -318,7 +369,11 @@ impl Fields {
 }
 
 /// Percent-decoding, plus `+` for a space.
-fn decode(value: &str) -> String {
+///
+/// `pub(crate)` for [`crate::handoff`], which writes the other half of this and tests the pair
+/// against each other — two implementations that disagree is the failure worth pinning, and neither
+/// one alone can show it.
+pub(crate) fn decode(value: &str) -> String {
     let bytes = value.as_bytes();
     let mut out: Vec<u8> = Vec::with_capacity(bytes.len());
     let mut index = 0;
@@ -384,6 +439,50 @@ mod tests {
         let entries = form.entries();
         assert_eq!(entries.len(), 2, "asked for once");
         assert_eq!(entries[0].expand, Some(true), "the first mention wins");
+    }
+
+    /// The list somebody opened is merged in, and it loses to what they did on the page just now.
+    ///
+    /// **The order in `entries` is a precedence and not an arrangement.** A double-click is a
+    /// minute old by the time Fetch is pressed; a line typed into the box is a second old. Merging
+    /// keeps a link's first mention *and the marker that came with it*, so the order decides which
+    /// `--playlist` wins for a link named twice.
+    #[test]
+    fn a_list_opened_by_a_double_click_loses_to_what_was_typed_over_it() {
+        let dir = std::env::temp_dir().join(format!(
+            "km-video-downloader-opened-entries-{}-{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("a scratch folder");
+
+        let opened = dir.join("anime.kmvf");
+        std::fs::write(
+            &opened,
+            "--playlist https://example.invalid/a\nhttps://example.invalid/c\n",
+        )
+        .expect("a list");
+
+        let form = Form {
+            typed: "--no-playlist https://example.invalid/a\n".to_owned(),
+            opened_list: Some(opened.display().to_string()),
+            ..Form::default()
+        };
+        let entries = form.entries();
+        assert_eq!(entries.len(), 2, "the opened list is read and merged");
+        assert_eq!(
+            entries[0].expand,
+            Some(false),
+            "what was typed on the page beats what was double-clicked"
+        );
+
+        // A list that has gone missing between the page being drawn and Fetch being pressed says
+        // nothing, rather than failing a fetch that has other links in it.
+        std::fs::remove_file(&opened).expect("remove it");
+        assert_eq!(form.entries().len(), 1);
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// The form body carries a Windows path, and percent-decoding it wrongly is how a folder ends

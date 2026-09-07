@@ -96,6 +96,16 @@ pub const ARCHIVE_NAME: &str = ".km-fetched.txt";
 /// neither trimmed nor sanitised, and so keeps its dot and stays hidden.
 pub const RECORDS_NAME: &str = "km-video-fetch-records.jsonl";
 
+/// What a list of links to fetch is called, where it is called anything.
+///
+/// The extension on [`BATCH_NAME`], and the one a setup program associates with
+/// `km-video-downloader` so that opening such a file opens the program. Written down once because
+/// three unrelated places need it: the constant below, the page's file picker, and the installer.
+///
+/// **With the dot on it**, which is the form every one of those three wants — `ends_with`, an
+/// `accept` attribute and a registry key alike.
+pub const EXTENSION: &str = ".kmvf";
+
 /// The list of URLs a folder can carry for itself.
 ///
 /// **The third fact a destination folder is allowed to hold about itself**, beside [`ARCHIVE_NAME`]
@@ -105,7 +115,16 @@ pub const RECORDS_NAME: &str = "km-video-fetch-records.jsonl";
 /// **Named rather than hidden**, unlike the archive: this one is a file somebody writes and edits by
 /// hand, and a leading dot would make it invisible in exactly the file manager they would edit it
 /// from. It says whose it is for `RECORDS_NAME`'s third reason.
-pub const BATCH_NAME: &str = "km-video-fetch.txt";
+///
+/// **And it carries an extension of its own rather than `.txt`**, which is the one thing `.txt`
+/// could not say: this is a document with a grammar — see [`crate::list`] — and an operating system
+/// has no way to learn that from a name it shares with every other text file. `.kmvf` is what the
+/// installer associates with `km-video-downloader`, so a list can be opened by double-clicking it.
+///
+/// **Two rules and not one, and they are easy to conflate.** *This* name is matched exactly, and
+/// only in a destination folder: it is the list that folder carries for itself. The association is
+/// matched by extension, on any such file anywhere, and means only that somebody opened it.
+pub const BATCH_NAME: &str = "km-video-fetch.kmvf";
 
 /// What a front end writes the links it was handed into, **relative to the destination**.
 ///
@@ -127,6 +146,11 @@ pub const ASKED_NAME: &str = "km-video-fetch-asked.txt";
 /// `km-video-fetch-` in the name for [`RECORDS_NAME`]'s third reason, and no leading dot for
 /// [`BATCH_NAME`]'s: for the minute they exist they sit in somebody's folder of songs, and they
 /// should say whose they are and be visible while they do.
+///
+/// **And `.txt` rather than [`BATCH_NAME`]'s `.kmvf`, which is now load-bearing.** That extension is
+/// associated with `km-video-downloader`, and these are scratch: they sit in somebody's folder for
+/// the length of one run, and an interrupted run leaves them there for good. A program that wrote a
+/// double-clickable file into a folder of songs would be offering to reopen its own workings.
 ///
 /// **Passed to `--batch-file` whole, not as a bare name — the opposite of [`RECORDS_NAME`].**
 /// `--batch-file` is an ordinary path argument, resolved against the working directory and neither
@@ -734,6 +758,28 @@ mod tests {
             assert!(
                 name.starts_with("km-video-fetch"),
                 "{name} says whose it is"
+            );
+        }
+    }
+
+    /// Only the list a person maintains carries the extension a double-click opens.
+    ///
+    /// The other three are scratch, written into somebody's folder of songs and left there by an
+    /// interrupted run. `.kmvf` is associated with `km-video-downloader`, so one of those carrying
+    /// it would be this program offering to reopen its own workings.
+    #[test]
+    fn nothing_this_program_writes_for_itself_is_a_file_a_double_click_would_open() {
+        assert!(BATCH_NAME.ends_with(EXTENSION));
+        for name in [
+            ASKED_NAME,
+            SINGLES_NAME,
+            PLAYLISTS_NAME,
+            RECORDS_NAME,
+            ARCHIVE_NAME,
+        ] {
+            assert!(
+                !name.ends_with(EXTENSION),
+                "{name} is scratch and must not look like a document"
             );
         }
     }

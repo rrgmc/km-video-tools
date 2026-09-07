@@ -16,11 +16,22 @@
 
 use anyhow::Result;
 use tao::event::{Event, WindowEvent};
-use tao::event_loop::{ControlFlow, EventLoop};
+use tao::event_loop::{ControlFlow, EventLoop, EventLoopBuilder};
 use tao::window::WindowBuilder;
 use wry::WebViewBuilder;
 
-use crate::server::APP_NAME;
+use crate::server::{APP_NAME, State};
+
+/// What this program sends its own event loop.
+///
+/// One variant, because there is one thing anything outside the loop ever needs of the window:
+/// notice that the page under you changed. It is sent by the closure `run` hands to
+/// [`State::attach_wake`], from whichever thread `POST /opened` happened to land on.
+#[derive(Debug, Clone, Copy)]
+pub enum UserEvent {
+    /// A list was opened. Redraw and come forward.
+    Opened,
+}
 
 /// The size to open at, before the screen is consulted.
 ///
@@ -35,9 +46,18 @@ const WANTED: (f64, f64) = (1000.0, 900.0);
 const SCREEN_SHARE: f64 = 0.9;
 
 /// Opens the window and runs the event loop. Never returns.
-pub fn run(url: &str, runtime: tokio::runtime::Runtime) -> Result<()> {
-    let event_loop: EventLoop<()> = EventLoop::new();
+pub fn run(url: &str, runtime: tokio::runtime::Runtime, state: State) -> Result<()> {
+    let event_loop: EventLoop<UserEvent> = EventLoopBuilder::with_user_event().build();
     let window = build_window(&event_loop, url);
+
+    // **How anything outside this thread reaches the window.** A copy of this program started by a
+    // double-click cannot bind the port, so it posts its list to this one instead; that request is
+    // served on a runtime thread, and this is what lets it say so here.
+    let proxy = event_loop.create_proxy();
+    state.attach_wake(move || {
+        // A closed loop means the window is going away, which is not a fault worth reporting.
+        let _ = proxy.send_event(UserEvent::Opened);
+    });
 
     // **Held rather than dropped.** Dropping the runtime stops the server the window is looking at,
     // and the page would go blank on the first navigation.
@@ -63,19 +83,58 @@ pub fn run(url: &str, runtime: tokio::runtime::Runtime) -> Result<()> {
 
     event_loop.run(move |event, _target, control_flow| {
         *control_flow = ControlFlow::Wait;
-        if let Event::WindowEvent {
-            event: WindowEvent::CloseRequested,
-            ..
-        } = event
-        {
-            *control_flow = ControlFlow::Exit;
+        match event {
+            Event::WindowEvent {
+                event: WindowEvent::CloseRequested,
+                ..
+            } => *control_flow = ControlFlow::Exit,
+
+            // **macOS's only route to a double-clicked file**, and the reason this arm exists at
+            // all: that platform delivers a document to a running application as an Apple Event
+            // through `application:openURLs:`, never as an argument — so `Cli::list` is empty there
+            // even on the launch that opened the file. Windows is the other way round and never
+            // sends this.
+            Event::Opened { urls } => {
+                let opened = urls
+                    .iter()
+                    .filter_map(|url| url.to_file_path().ok())
+                    .filter(|list| state.open_list(list))
+                    .count();
+                if opened > 0 {
+                    show(window.as_ref());
+                }
+            }
+
+            // The page changed under the window: something handed this program a list. Redrawn
+            // rather than patched, because the whole page is what the server renders anyway.
+            Event::UserEvent(UserEvent::Opened) => show(window.as_ref()),
+
+            _ => {}
         }
     });
 }
 
+/// Redraws the page and brings the window forward.
+///
+/// **`location.reload()` rather than anything cleverer.** The page is server-rendered and every
+/// fragment on it comes from what the server knows, so reloading it *is* the update — the same
+/// reason `decisions.md` gives for a page reloaded mid-fetch picking the job back up.
+///
+/// A failure is a blemish and not a reason to stop: the list has been taken either way, and it is
+/// there the next time anybody touches the page.
+fn show(window: Option<&(tao::window::Window, wry::WebView)>) {
+    let Some((window, webview)) = window else {
+        return;
+    };
+    if let Err(error) = webview.evaluate_script("location.reload()") {
+        tracing::debug!(%error, "could not redraw the page");
+    }
+    window.set_focus();
+}
+
 /// Builds the window and the webview in it, or says why not.
 fn build_window(
-    event_loop: &EventLoop<()>,
+    event_loop: &EventLoop<UserEvent>,
     url: &str,
 ) -> Option<(tao::window::Window, wry::WebView)> {
     let (size, position) = opening_geometry(event_loop);
@@ -247,7 +306,7 @@ fn webview_data_dir() -> Option<std::path::PathBuf> {
 /// — and the honest response is to ask for what was wanted, name no position, and let the platform
 /// decide.
 fn opening_geometry(
-    event_loop: &EventLoop<()>,
+    event_loop: &EventLoop<UserEvent>,
 ) -> (
     tao::dpi::LogicalSize<f64>,
     Option<tao::dpi::LogicalPosition<f64>>,

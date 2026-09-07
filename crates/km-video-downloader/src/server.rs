@@ -38,6 +38,18 @@ const ICON_SVG: &str = include_str!("../static/icon.svg");
 /// What the page calls itself.
 pub const APP_NAME: &str = "KM Video Downloader";
 
+/// The only proof that `POST /opened` has reached *this* program.
+///
+/// A second copy started by a double-click finds the port taken and hands its file over rather than
+/// dying; the port being taken is not by itself evidence that what is listening is us. So every
+/// answer from that endpoint carries this, and one that does not means somebody else's server has
+/// the port.
+///
+/// **On a refusal as well as on a success**, which is what keeps the other copy's report honest:
+/// identity and outcome are two facts, and a marker only on success would make *this program said
+/// no* indistinguishable from *this port belongs to something else*.
+pub const OPENED_MARK: &str = "km-video-downloader/opened";
+
 /// At most this much of an uploaded list of links.
 ///
 /// A URL is about a hundred bytes, so this is tens of thousands of them — generous for a text file
@@ -59,6 +71,18 @@ struct Inner {
     settings: Mutex<Settings>,
     /// The one job slot.
     job: Mutex<Option<Arc<Job>>>,
+    /// The list this run was handed, where a file association or an argument handed it one.
+    ///
+    /// **Not in [`Settings`], and that is the whole distinction**: settings are what somebody meant
+    /// from now on, and this is what they asked for by double-clicking something a minute ago. It
+    /// lasts as long as the process and is written down nowhere.
+    opened: Mutex<Option<PathBuf>>,
+    /// How to make a window notice that the page under it changed.
+    ///
+    /// **A closure rather than anything from `tao`**, so this module stays free of the window's
+    /// crate and a `--no-default-features` build simply never has one to call. `desktop::run`
+    /// installs one that wakes its event loop; nothing else does.
+    wake: Mutex<Option<Box<dyn Fn() + Send + Sync>>>,
 }
 
 impl State {
@@ -72,6 +96,8 @@ impl State {
                 yt_dlp,
                 settings: Mutex::new(settings),
                 job: Mutex::new(None),
+                opened: Mutex::new(None),
+                wake: Mutex::new(None),
             }),
         }
     }
@@ -136,6 +162,71 @@ impl State {
         let job = Job::new(phase);
         *slot = Some(Arc::clone(&job));
         Ok(job)
+    }
+
+    /// Takes a list somebody opened: an argument on the command line, or a file association.
+    ///
+    /// **Two things, and no third one.** The folder moves to the list's own folder, because a list
+    /// sitting in a folder of songs is about that folder; and the path is remembered so the page can
+    /// offer it. Nothing is fetched — opening a document is somebody saying *look at this*, not
+    /// *do it*.
+    ///
+    /// **Gated on `is_file`**, the way [`km_video_core::args::Plan::folders_own_list`] is, and a
+    /// path that is not a file changes nothing at all. It cannot be refused out loud: the
+    /// GUI-subsystem executable has nowhere to print, so a refusal would be a silent exit — which
+    /// is the failure this whole path exists to avoid.
+    ///
+    /// Returns whether anything changed, which is what tells the caller whether to wake a window.
+    pub fn open_list(&self, list: &Path) -> bool {
+        if !list.is_file() {
+            return false;
+        }
+        if let Some(folder) = list
+            .parent()
+            .filter(|folder| !folder.as_os_str().is_empty())
+        {
+            let mut settings = self.settings();
+            settings.out = folder.display().to_string();
+            self.remember(settings);
+        }
+        *self
+            .inner
+            .opened
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(list.to_path_buf());
+        true
+    }
+
+    /// The list this run was handed, where it was handed one.
+    #[must_use]
+    pub fn opened(&self) -> Option<PathBuf> {
+        self.inner
+            .opened
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .clone()
+    }
+
+    /// Says how to make the window notice. Called once, by whoever owns one.
+    pub fn attach_wake(&self, wake: impl Fn() + Send + Sync + 'static) {
+        *self
+            .inner
+            .wake
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(Box::new(wake));
+    }
+
+    /// Makes the window notice, where there is one. A build without a window does nothing here.
+    pub fn wake(&self) {
+        if let Some(wake) = self
+            .inner
+            .wake
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .as_ref()
+        {
+            wake();
+        }
     }
 }
 
@@ -202,6 +293,7 @@ pub fn router(state: State) -> Router {
         .route("/progress", get(crate::views::progress))
         .route("/results", get(crate::views::results))
         .route("/out", post(crate::handlers::set_out))
+        .route("/opened", post(crate::handlers::opened))
         .route(
             "/fetch",
             post(crate::handlers::start).layer(axum::extract::DefaultBodyLimit::max(LIST_LIMIT)),
@@ -294,6 +386,65 @@ mod tests {
                 .expect("a body");
             assert!(body.len() >= at_least, "{path} is {} bytes", body.len());
         }
+    }
+
+    /// A list handed over by a second copy is taken, and the folder follows it.
+    ///
+    /// **Both halves of `open_list`, and the negative one matters as much.** The endpoint is what a
+    /// double-click reaches when a window is already open, so a path that is not there must change
+    /// nothing at all rather than move somebody's output folder to a place with no list in it.
+    #[tokio::test]
+    async fn a_list_handed_over_is_taken_and_the_folder_follows_it() {
+        let dir = std::env::temp_dir().join(format!(
+            "km-video-downloader-opened-{}-{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        let songs = dir.join("songs");
+        std::fs::create_dir_all(&songs).expect("a scratch folder");
+        let list = songs.join(km_video_core::args::BATCH_NAME);
+        std::fs::write(&list, "https://example.invalid/a\n").expect("a list");
+
+        let state = State::new(dir.join("data"), None);
+        assert_eq!(state.opened(), None);
+
+        let post = |state: State, path: &Path| {
+            let body = format!(
+                "path={}",
+                crate::handoff::encode(&path.display().to_string())
+            );
+            router(state).oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/opened")
+                    .header("content-type", "application/x-www-form-urlencoded")
+                    .body(Body::from(body))
+                    .expect("a request"),
+            )
+        };
+
+        let response = post(state.clone(), &list).await.expect("a response");
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .expect("a body");
+        assert_eq!(
+            std::str::from_utf8(&body).expect("text"),
+            OPENED_MARK,
+            "the marker is what proves to the other copy that this one is us"
+        );
+        assert_eq!(state.opened().as_deref(), Some(list.as_path()));
+        assert_eq!(state.settings().out, songs.display().to_string());
+
+        // A path that is not a file changes neither.
+        let absent = songs.join("not-there.kmvf");
+        let response = post(state.clone(), &absent).await.expect("a response");
+        assert_ne!(response.status(), StatusCode::OK);
+        assert_eq!(state.opened().as_deref(), Some(list.as_path()));
+        assert_eq!(state.settings().out, songs.display().to_string());
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// `0.0.0.0` is a way of listening, not a place to visit.

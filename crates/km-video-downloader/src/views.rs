@@ -48,6 +48,11 @@ pub struct Index {
     pub own_list: Option<String>,
     /// How many links that list holds.
     pub own_list_count: usize,
+    /// The list this run was opened with, where it was opened with one **and it is not already the
+    /// folder's own list**.
+    pub opened_list: Option<String>,
+    /// How many links that list holds.
+    pub opened_list_count: usize,
     /// Expand playlists.
     pub playlist: bool,
     /// Re-encode anything outside the profile.
@@ -84,6 +89,14 @@ fn page(state: &State) -> Index {
         .as_deref()
         .and_then(km_video_core::args::Plan::folders_own_list);
 
+    // **Drawn only where it is not already the row above.** Opening a list moves the folder to that
+    // list's own folder, so the usual case — a `km-video-fetch.kmvf` double-clicked where it sits —
+    // ends with the opened file *being* the folder's own list, and the checkbox for it is already
+    // there. Two identical rows would be this program announcing the same file twice.
+    let opened_list = state
+        .opened()
+        .filter(|opened| own_list.as_deref() != Some(opened.as_path()));
+
     Index {
         app_name: APP_NAME,
         out: settings.out.clone(),
@@ -93,6 +106,10 @@ fn page(state: &State) -> Index {
             .as_deref()
             .map_or(0, |list| km_video_core::list::read(list).len()),
         own_list: own_list.map(|list| list.display().to_string()),
+        opened_list_count: opened_list
+            .as_deref()
+            .map_or(0, |list| km_video_core::list::read(list).len()),
+        opened_list: opened_list.map(|list| list.display().to_string()),
         playlist: settings.playlist,
         normalize: settings.normalize,
         subs: settings.subs,
@@ -193,4 +210,86 @@ pub async fn browse(AxumState(state): AxumState<State>, Query(asked): Query<Wher
     render(&Browse {
         listing: browse::list(&at),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A folder for one test, gone again afterwards.
+    fn scratch(name: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "km-video-downloader-views-{name}-{}-{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("a scratch folder");
+        dir
+    }
+
+    /// The list somebody opened is offered once, not twice.
+    ///
+    /// **This is the usual case rather than an edge.** Opening a list moves the folder to that
+    /// list's own folder, so a `km-video-fetch.kmvf` double-clicked where it sits *becomes* the
+    /// folder's own list — and the checkbox for that is already on the page. Drawing both would be
+    /// this program offering the same file under two names, with two counts to reconcile.
+    #[test]
+    fn a_list_that_is_also_the_folders_own_is_offered_once() {
+        let dir = scratch("own");
+        let songs = dir.join("songs");
+        std::fs::create_dir_all(&songs).expect("a folder of songs");
+
+        let own = songs.join(km_video_core::args::BATCH_NAME);
+        std::fs::write(&own, "https://example.invalid/a\n").expect("a list");
+
+        let state = State::new(dir.join("data"), None);
+        assert!(state.open_list(&own));
+
+        let page = page(&state);
+        assert_eq!(page.own_list.as_deref(), Some(&*own.display().to_string()));
+        assert_eq!(page.own_list_count, 1);
+        assert_eq!(
+            page.opened_list, None,
+            "the row above it already is this file"
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A list opened from somewhere with a name of its own is a second row, because nothing else on
+    /// the page mentions it.
+    #[test]
+    fn a_list_under_any_other_name_is_a_row_of_its_own() {
+        let dir = scratch("other");
+        let songs = dir.join("songs");
+        std::fs::create_dir_all(&songs).expect("a folder of songs");
+
+        let opened = songs.join("anime-openings.kmvf");
+        std::fs::write(
+            &opened,
+            "https://example.invalid/a\n--playlist https://example.invalid/b\n",
+        )
+        .expect("a list");
+
+        let state = State::new(dir.join("data"), None);
+        assert!(state.open_list(&opened));
+
+        let page = page(&state);
+        assert_eq!(
+            page.own_list, None,
+            "that folder carries no list of its own"
+        );
+        assert_eq!(
+            page.opened_list.as_deref(),
+            Some(&*opened.display().to_string())
+        );
+        assert_eq!(page.opened_list_count, 2);
+
+        // And it renders — the template reads both of these and askama is checked at run time.
+        let html = page.render().expect("the page renders");
+        assert!(html.contains("anime-openings.kmvf"));
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

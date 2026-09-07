@@ -32,7 +32,7 @@
 //! # A file with no markers is not this tool's file
 //!
 //! It is an ordinary yt-dlp batch file, and [`crate::fetch`] hands it over untouched rather than
-//! reading and rewriting it. That is what keeps a `km-video-fetch.txt` somebody maintains by hand
+//! reading and rewriting it. That is what keeps a `km-video-fetch.kmvf` somebody maintains by hand
 //! from being rewritten behind their back, and what keeps a list holding things this module does not
 //! model — a `;` comment, an option yt-dlp itself understands — working exactly as it did.
 //!
