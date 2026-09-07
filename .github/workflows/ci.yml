@@ -25,11 +25,11 @@ name: ci
 # feature that is not merely additive, and adding it before it is needed is a cost with no matching
 # benefit.
 #
-# **What that leaves unbuilt is the off position.** `--no-default-features` is the browser-only
-# program, the one a Linux machine without libwebkit2gtk needs, and it is the only configuration in
-# which `wry`, `tao` and `muda` are absent — so it is the one that can break without anything here
-# noticing. Nothing in this file compiles it. See `It is an application with a window, not a program
-# that prints an address` in docs/decisions.md.
+# **The off position is a step of its own**, because nothing above reaches it: `desktop` is on by
+# default, so the whole run builds the window and none of it builds the browser-only program — the
+# one a Linux machine without libwebkit2gtk needs, and the only configuration in which `wry`, `tao`
+# and `muda` are absent. See `It is an application with a window, not a program that prints an
+# address` in docs/decisions.md.
 
 on:
   push:
@@ -103,3 +103,18 @@ jobs:
           cargo fmt --all --check
           cargo clippy --workspace --all-targets -- -D warnings
           cargo test --workspace
+
+      # **The off position**, which the run above never reaches: `desktop` is on by default, so
+      # everything before this builds the window and nothing builds the browser-only program — the
+      # one a Linux machine without libwebkit2gtk needs, and the only configuration in which `wry`,
+      # `tao` and `muda` are absent. That is what makes it the build that can rot unnoticed.
+      #
+      # **`clippy --all-targets` rather than `test`**, because what breaks in this configuration is
+      # *compiling* it — an import or a function that turned out to live behind the feature — and
+      # `--all-targets` compiles the test code too without paying to run a suite that is the same one
+      # above less the two window tests the feature gates.
+      #
+      # On both runners, for the reason the matrix exists at all: carving a platform out of a check
+      # wants a reason, and there is none here.
+      - name: The browser-only build
+        run: cargo clippy -p km-video-downloader --no-default-features --all-targets -- -D warnings
