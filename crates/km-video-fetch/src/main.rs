@@ -47,7 +47,7 @@ struct Cli {
 
     /// Read URLs from a file, one per line.
     ///
-    /// With no URLs and no file named, a `km-video-fetch.txt` in the destination folder is read as
+    /// With no URLs and no file named, a `km-video-fetch.kmvf` in the destination folder is read as
     /// this — so a folder can carry its own list, the way it already carries its own archive.
     ///
     /// A line may start with `--playlist`, `--no-playlist` or `--out FOLDER` to say what that one

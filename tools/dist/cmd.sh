@@ -140,7 +140,7 @@ to take the whole list, which is a thing you say rather than something guessed f
 
 Already-fetched videos are remembered in .km-fetched.txt beside them, so re-running over the same
 list or playlist picks up only what is new. A folder can also carry its own list of what to fetch
-into it, as km-video-fetch.txt, which is read when no URLs and no --from-file are given.
+into it, as km-video-fetch.kmvf, which is read when no URLs and no --from-file are given.
 
 Options
 -------

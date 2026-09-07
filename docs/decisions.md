@@ -96,7 +96,7 @@ plan and a file for exactly the reason `argv` is a pure function of a plan: so w
 asserted by value rather than by running yt-dlp.
 
 **A list that says nothing is handed over unread and unrewritten** — byte for byte the argv this tool
-has always built. That is what keeps a `km-video-fetch.txt` somebody maintains by hand from being
+has always built. That is what keeps a `km-video-fetch.kmvf` somebody maintains by hand from being
 rewritten behind their back, and what keeps a list carrying things `list.rs` does not model working
 exactly as it did. An unreadable list says nothing and is yt-dlp's to complain about.
 

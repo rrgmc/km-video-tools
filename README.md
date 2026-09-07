@@ -33,7 +33,7 @@ km-video-downloader                    # the same thing, with a window
 ```
 
 A folder remembers what has already been fetched into it (`.km-fetched.txt`), and can carry its own
-list of what to fetch (`km-video-fetch.txt`), so re-running over a playlist picks up only what is
+list of what to fetch (`km-video-fetch.kmvf`), so re-running over a playlist picks up only what is
 new. The page reads that list too, and offers it as one click when it is there.
 
 A line of such a list may say what it is and where it goes, which is the only way to fetch a mix of

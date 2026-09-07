@@ -210,7 +210,7 @@ pub fn fetch(request: &Request, mut on_event: impl FnMut(Event) -> Flow) -> Resu
         );
     }
 
-    // **A folder is allowed to say what goes in it.** With nothing named, a `km-video-fetch.txt` in
+    // **A folder is allowed to say what goes in it.** With nothing named, a `km-video-fetch.kmvf` in
     // the destination is taken as the list — the same argument the archive beside it already makes:
     // what to fetch *into this folder* is a fact about the folder, and one somebody maintains by
     // hand over months rather than retypes.
@@ -406,7 +406,7 @@ fn runs(plan: &args::Plan) -> Result<Vec<args::Plan>> {
 
     let entries = list::read(from_file);
     // **A list that says nothing is handed over unread and unrewritten**, byte for byte the argv
-    // this tool has always built. That is what keeps a `km-video-fetch.txt` somebody maintains by
+    // this tool has always built. That is what keeps a `km-video-fetch.kmvf` somebody maintains by
     // hand from being rewritten behind their back, and what keeps a list carrying things
     // [`crate::list`] does not model — a `;` comment, an option yt-dlp itself understands — working
     // exactly as it did. An unreadable list says nothing, and is yt-dlp's to complain about.
