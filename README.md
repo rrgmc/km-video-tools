@@ -55,6 +55,22 @@ and each folder keeps its own `.km-fetched.txt`, because what is already in a fo
 that folder. A list with none of these markers in it is an ordinary yt-dlp batch file and is handed
 over as one.
 
+Lines **above the first link** are a header, and say what is true of the whole list:
+
+```text
+--cookies-from-browser firefox
+--normalize
+--limit 50
+
+https://youtu.be/aaaaaaaaaaa
+```
+
+It may carry `--playlist`, `--subs`, `--normalize`, `--no-archive`, `--limit N`,
+`--cookies-from-browser BROWSER`, `--format SELECTOR` and `--sort ORDER` — the settings a whole run
+shares, spelled as the flags they override. What you pass on the command line wins over what the
+file says; in the window they arrive as ticked boxes you can untick. A folder that always needs a
+cookie jar can now say so once instead of being retyped every morning.
+
 **`.kmvf` rather than `.txt`, and the extension is the point.** A list is a document with a grammar,
 and `.txt` is the one thing that cannot say so to an operating system. With an extension of its own
 it carries the program's icon and opens by double-clicking:

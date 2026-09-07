@@ -35,7 +35,7 @@ use std::process::ExitCode;
 
 use anyhow::{Result, bail};
 use clap::Parser;
-use km_video_core::{args, fetch, run};
+use km_video_core::{args, fetch, list, run};
 
 /// Fetch video songs with yt-dlp, in the shape packaging wants them.
 #[derive(Debug, Parser)]
@@ -53,6 +53,10 @@ struct Cli {
     /// A line may start with `--playlist`, `--no-playlist` or `--out FOLDER` to say what that one
     /// link is and where it goes, `FOLDER` being under `--out`. A list that says none of those is
     /// handed to yt-dlp exactly as it is.
+    ///
+    /// Lines before the first link are a header, and may carry `--playlist`, `--subs`,
+    /// `--normalize`, `--no-archive`, `--limit N`, `--cookies-from-browser BROWSER`,
+    /// `--format SELECTOR` and `--sort ORDER` for the whole list. What is given here wins.
     #[arg(long, value_name = "PATH")]
     from_file: Option<PathBuf>,
 
@@ -141,13 +145,31 @@ fn run() -> Result<bool> {
         bail!("give URLs or --from-file, not both");
     }
 
-    let request = fetch::Request {
+    // **Resolved here rather than left to `fetch`**, which would do the same thing and say so.
+    // The reason is the list's header: it may set what the flags below set, so it has to be read
+    // before the request is built, and reading it means knowing which file it is. `fetch` keeps
+    // its fallback for the case this leaves — nothing named and no list anywhere — because the
+    // message it refuses with names the file somebody should make.
+    //
+    // An explicit `--from-file` wins, and URLs on the command line mean the folder's own list is
+    // not consulted at all.
+    let from_file = cli.from_file.clone().or_else(|| {
+        cli.targets
+            .is_empty()
+            .then(|| args::Plan::folders_own_list(&cli.out))
+            .flatten()
+    });
+    if cli.from_file.is_none()
+        && let Some(list) = &from_file
+    {
+        // `fetch` would have said this through an event; it is this program's sentence either way.
+        eprintln!("reading {}", list.display());
+    }
+
+    let mut request = fetch::Request {
         plan: args::Plan {
             targets: cli.targets.clone(),
-            // An explicit `--from-file` wins, and URLs on the command line mean the folder's own
-            // list is not consulted at all — that fallback is [`fetch::fetch`]'s, and it says so
-            // when it takes it.
-            from_file: cli.from_file.clone(),
+            from_file: from_file.clone(),
             playlist: cli.playlist,
             out: cli.out.clone(),
             limit: cli.limit,
@@ -166,6 +188,14 @@ fn run() -> Result<bool> {
         // rebuild from a pipe. The web UI is the caller that cannot do that.
         progress: fetch::Progress::Terminal,
     };
+
+    // **After the request, and by the request's own rule**: what was asked for on the command line
+    // wins where it can be told to have been asked for, and a flag is the *or* of the two. See
+    // `fetch::Request::apply_list_settings`, which is where that is written down and where the one
+    // wart in it is admitted.
+    if let Some(list) = &from_file {
+        request.apply_list_settings(&list::settings_of(list));
+    }
 
     let mut reporter = Reporter {
         show_command: cli.show_command || cli.dry_run,

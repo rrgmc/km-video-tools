@@ -68,6 +68,45 @@ pub struct Request {
     pub progress: Progress,
 }
 
+impl Request {
+    /// Folds in what a list asked for, where this request did not say.
+    ///
+    /// **The caller's to call, and deliberately not something [`fetch`] does for itself.** The
+    /// alternative is a real bug rather than a matter of taste: the page shows a list's settings on
+    /// its own controls so that somebody can see them and change them, and a `fetch` that also
+    /// merged would put back a box they had just unticked. One place applies this, and it is
+    /// whichever place built the request.
+    ///
+    /// # Precedence, and the one wart in it
+    ///
+    /// **What was asked for wins where it can be told to have been asked for.** For the four
+    /// `Option`s that is exact: `None` means nobody said, so the list is heard. For the flags it
+    /// cannot be — a `bool` off is indistinguishable from a `bool` unset, on a command line as much
+    /// as in a form — so those are the *or* of the two, and a list that says `--subs` cannot be
+    /// talked out of it until there is a `--no-subs` to say so with. Said out loud here because it
+    /// reads like an oversight and is not one.
+    pub fn apply_list_settings(&mut self, settings: &list::Settings) {
+        self.plan.playlist |= settings.playlist;
+        self.plan.subs |= settings.subs;
+        self.normalize |= settings.normalize;
+        // The archive is a path rather than a flag by the time it reaches here, so *off* is the
+        // absence of one. Only ever cleared: a list cannot ask for an archive that was refused.
+        if settings.no_archive {
+            self.plan.archive = None;
+        }
+        self.plan.limit = self.plan.limit.or(settings.limit);
+        if self.plan.cookies_from_browser.is_none() {
+            self.plan.cookies_from_browser = settings.cookies_from_browser.clone();
+        }
+        if self.plan.format.is_none() {
+            self.plan.format = settings.format.clone();
+        }
+        if self.plan.sort.is_none() {
+            self.plan.sort = settings.sort.clone();
+        }
+    }
+}
+
 /// One thing that happened, as it happened.
 #[derive(Debug, Clone)]
 pub enum Event {
@@ -246,9 +285,11 @@ pub fn fetch(request: &Request, mut on_event: impl FnMut(Event) -> Flow) -> Resu
     // One run, or the several a marked list asks for. Refuses here — before anything is downloaded
     // — for the one thing a list can say that this will not do, which is name a folder outside the
     // one the fetch was pointed at.
-    let plans = runs(&plan)?;
-    // Whatever `runs` wrote, gone however this function returns. There is a `?` between the runs.
-    let _scratch = Scratch::of(&plans);
+    //
+    // **The `Scratch` comes back with it**, holding whatever was written — including the list handed
+    // in, where a front end wrote that. Gone however this function returns; there is a `?` between
+    // the runs, and `runs` itself has one between the files it writes.
+    let (plans, _scratch) = runs(&plan)?;
 
     // Carried with the destination that produced each one, for the deduplication below.
     let mut fetched: Vec<(PathBuf, run::Record)> = Vec::new();
@@ -399,22 +440,34 @@ pub fn fetch(request: &Request, mut on_event: impl FnMut(Event) -> Flow) -> Resu
 /// to contain it*; the single-video runs are the fast half, so somebody watching sees their named
 /// picks land before a two-hundred-item playlist starts; and an order that depended on a checkbox
 /// would be worse to reason about and worse to test.
-fn runs(plan: &args::Plan) -> Result<Vec<args::Plan>> {
+fn runs(plan: &args::Plan) -> Result<(Vec<args::Plan>, Scratch)> {
+    // The list handed in is itself scratch where a front end wrote it, and is spent either way: for
+    // a marked list it is read and replaced by the files below, and for an unmarked one it is passed
+    // straight to yt-dlp. `writing` keeps only what this tool writes itself, so a hand-maintained
+    // list arriving here is left where it is.
+    let mut scratch = Scratch::default();
+    scratch.writing(plan.from_file.as_deref());
+
     let Some(from_file) = &plan.from_file else {
-        return Ok(vec![plan.clone()]);
+        return Ok((vec![plan.clone()], scratch));
     };
 
-    let entries = list::read(from_file);
+    let (settings, entries) = list::parse(&std::fs::read_to_string(from_file).unwrap_or_default());
     // **A list that says nothing is handed over unread and unrewritten**, byte for byte the argv
     // this tool has always built. That is what keeps a `km-video-fetch.kmvf` somebody maintains by
     // hand from being rewritten behind their back, and what keeps a list carrying things
     // [`crate::list`] does not model — a `;` comment, an option yt-dlp itself understands — working
     // exactly as it did. An unreadable list says nothing, and is yt-dlp's to complain about.
-    if entries
-        .iter()
-        .all(|entry| entry.expand.is_none() && entry.out.is_none())
+    //
+    // **A header counts as saying something**, and has to: `--cookies-from-browser firefox` handed
+    // to `--batch-file` is a line yt-dlp reads as a URL. So the passthrough survives for exactly
+    // the files that say nothing at all, which is what the paragraph above always claimed.
+    if settings == list::Settings::default()
+        && entries
+            .iter()
+            .all(|entry| entry.expand.is_none() && entry.out.is_none())
     {
-        return Ok(vec![plan.clone()]);
+        return Ok((vec![plan.clone()], scratch));
     }
 
     // Grouped in first-mention order, so the runs come out in the order the list reads.
@@ -445,6 +498,9 @@ fn runs(plan: &args::Plan) -> Result<Vec<args::Plan>> {
             };
             let path = out.join(name);
             std::fs::create_dir_all(out).with_context(|| format!("creating {}", out.display()))?;
+            // Registered before it is written, so a `write_urls` that fails halfway still leaves
+            // behind something this knows to remove.
+            scratch.writing(Some(&path));
             // Markers stripped: they have already been spent deciding which run this is, and yt-dlp
             // would take one at the front of a line as part of the URL it was given.
             list::write_urls(&path, lines)
@@ -466,32 +522,44 @@ fn runs(plan: &args::Plan) -> Result<Vec<args::Plan>> {
             });
         }
     }
-    Ok(plans)
+    Ok((plans, scratch))
 }
 
-/// The lists a marked run wrote for itself, removed however [`fetch`] returns.
+/// The lists this tool wrote for itself, removed however [`fetch`] returns.
 ///
 /// The same worry [`args::RECORDS_NAME`] has: for the moment they exist these sit in somebody's
 /// folder of songs, and there is a real `?` between the runs — reading a record file — that would
 /// otherwise leave one there for good. It cannot help a Ctrl-C, which is true of the record file too
 /// and is accepted for the same reason.
+///
+/// **Filled as the files are written rather than from the finished plans**, which is not a
+/// refactor: [`runs`] writes one file per group and has a `?` between them, so a list refused
+/// halfway used to orphan everything written before it.
+///
+/// **[`args::ASKED_NAME`] belongs here too, and its absence was a leak rather than a nicety.** That
+/// is the file a front end writes the links it was handed into; the page writes one on every Fetch
+/// and nothing ever removed it, so a folder of songs collected one per download. It is never among
+/// the plans [`runs`] returns for a marked list — it is the file that was *read* to make them — so
+/// it is registered from the plan that came in.
+#[derive(Debug, Default)]
 struct Scratch(Vec<PathBuf>);
 
 impl Scratch {
-    /// The generated lists among these plans, which is none of them where nothing was generated.
-    fn of(plans: &[args::Plan]) -> Self {
-        Self(
-            plans
-                .iter()
-                .filter(|plan| {
-                    plan.from_file.as_ref().is_some_and(|path| {
-                        let name = path.file_name().unwrap_or_default();
-                        name == args::SINGLES_NAME || name == args::PLAYLISTS_NAME
-                    })
-                })
-                .filter_map(|plan| plan.from_file.clone())
-                .collect(),
-        )
+    /// Registers `path` for removal, where it is one of the three names this tool writes itself.
+    ///
+    /// **Matched by name, and that is load-bearing rather than convenient.** A `from_file` is just
+    /// as likely to be the `km-video-fetch.kmvf` somebody maintains by hand in that same folder, and
+    /// deleting a person's list at the end of a successful fetch would be the worst bug this program
+    /// could have. Only what it wrote itself may be removed.
+    fn writing(&mut self, path: Option<&Path>) {
+        let Some(path) = path else { return };
+        let name = path.file_name().unwrap_or_default();
+        if [args::ASKED_NAME, args::SINGLES_NAME, args::PLAYLISTS_NAME]
+            .iter()
+            .any(|scratch| name == *scratch)
+        {
+            self.0.push(path.to_owned());
+        }
     }
 }
 
@@ -693,12 +761,112 @@ mod tests {
         assert!((percent - 10.0).abs() < f32::EPSILON);
     }
 
+    /// The precedence rule, both halves of it.
+    #[test]
+    fn what_was_asked_for_wins_where_it_can_be_told_to_have_been_asked_for() {
+        let said = list::Settings {
+            playlist: true,
+            subs: true,
+            normalize: true,
+            no_archive: true,
+            limit: Some(50),
+            cookies_from_browser: Some("firefox".to_owned()),
+            format: Some("from-the-list".to_owned()),
+            sort: Some("from-the-list".to_owned()),
+        };
+
+        // Nobody said anything, so the list is heard on every one of them.
+        let mut quiet = request_over(plan_asking_nothing());
+        quiet.apply_list_settings(&said);
+        assert!(quiet.plan.playlist && quiet.plan.subs && quiet.normalize);
+        assert_eq!(quiet.plan.archive, None, "--no-archive clears it");
+        assert_eq!(quiet.plan.limit, Some(50));
+        assert_eq!(quiet.plan.cookies_from_browser.as_deref(), Some("firefox"));
+        assert_eq!(quiet.plan.format.as_deref(), Some("from-the-list"));
+        assert_eq!(quiet.plan.sort.as_deref(), Some("from-the-list"));
+
+        // ...and an `Option` that was given is not overruled.
+        let mut asked = request_over(plan_asking_nothing());
+        asked.plan.limit = Some(3);
+        asked.plan.cookies_from_browser = Some("chrome".to_owned());
+        asked.plan.format = Some("from-the-flag".to_owned());
+        asked.apply_list_settings(&said);
+        assert_eq!(asked.plan.limit, Some(3));
+        assert_eq!(asked.plan.cookies_from_browser.as_deref(), Some("chrome"));
+        assert_eq!(asked.plan.format.as_deref(), Some("from-the-flag"));
+    }
+
+    /// A `bool` cannot tell *off* from *unset*, so a flag is the or of the two and a list that
+    /// asks for something cannot be talked out of it. Pinned because it reads like an oversight.
+    #[test]
+    fn a_flag_the_list_set_cannot_be_turned_off_from_outside() {
+        let mut request = request_over(plan_asking_nothing());
+        request.plan.subs = false;
+        request.apply_list_settings(&list::Settings {
+            subs: true,
+            ..list::Settings::default()
+        });
+        assert!(request.plan.subs);
+    }
+
+    /// A header is something said, so the file cannot go to `--batch-file` as it stands: yt-dlp
+    /// would read `--limit 3` as a URL. The passthrough survives for exactly the lists that say
+    /// nothing at all.
+    #[test]
+    fn a_list_with_a_header_is_rewritten_rather_than_handed_over_whole() {
+        let dir = scratch("header");
+        let plan = plan_over(&dir, "--limit 3\n\nhttps://example.invalid/a\n", false);
+
+        let (plans, scratch) = runs(&plan).expect("a header is a run of its own shape");
+        assert_eq!(plans.len(), 1);
+        assert_eq!(
+            plans[0].from_file,
+            Some(dir.join(args::SINGLES_NAME)),
+            "a copy with the header taken off, not the caller's own file"
+        );
+        assert_eq!(
+            std::fs::read_to_string(dir.join(args::SINGLES_NAME)).unwrap(),
+            "https://example.invalid/a\n"
+        );
+
+        drop(scratch);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     /// A folder of this test's own, so two of them cannot tread on each other.
     fn scratch(name: &str) -> PathBuf {
         let dir = std::env::temp_dir().join("km-video-fetch-runs").join(name);
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).expect("a folder to work in");
         dir
+    }
+
+    /// A plan over nothing on disk, for the tests that only look at the fields.
+    fn plan_asking_nothing() -> args::Plan {
+        args::Plan {
+            targets: Vec::new(),
+            from_file: None,
+            playlist: false,
+            out: PathBuf::from("."),
+            limit: None,
+            archive: Some(PathBuf::from(".").join(args::ARCHIVE_NAME)),
+            cookies_from_browser: None,
+            subs: false,
+            format: None,
+            sort: None,
+            dry_run: false,
+            progress_lines: false,
+        }
+    }
+
+    /// A request over a plan, with nothing else asked for.
+    fn request_over(plan: args::Plan) -> Request {
+        Request {
+            plan,
+            yt_dlp: None,
+            normalize: false,
+            progress: Progress::Terminal,
+        }
     }
 
     fn plan_over(out: &Path, list: &str, playlist: bool) -> args::Plan {
@@ -731,7 +899,7 @@ mod tests {
             false,
         );
 
-        let plans = runs(&plan).expect("a plain list is one run");
+        let (plans, scratch) = runs(&plan).expect("a plain list is one run");
         assert_eq!(plans.len(), 1);
         assert_eq!(
             plans[0].from_file, plan.from_file,
@@ -743,6 +911,7 @@ mod tests {
             "and nothing was written beside it"
         );
 
+        drop(scratch);
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -755,7 +924,7 @@ mod tests {
             false,
         );
 
-        let plans = runs(&plan).expect("a mixed list splits");
+        let (plans, scratch) = runs(&plan).expect("a mixed list splits");
         assert_eq!(plans.len(), 2);
         assert!(!plans[0].playlist, "the single videos go first");
         assert!(plans[1].playlist);
@@ -772,6 +941,7 @@ mod tests {
             "the marker is spent by now, and yt-dlp would read it as part of the URL"
         );
 
+        drop(scratch);
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -786,11 +956,12 @@ mod tests {
             true,
         );
 
-        let plans = runs(&plan).expect("a marked list splits");
+        let (plans, scratch) = runs(&plan).expect("a marked list splits");
         assert_eq!(plans.len(), 2);
         assert!(!plans[0].playlist, "the marked line, against the flag");
         assert!(plans[1].playlist, "and the unmarked one follows it");
 
+        drop(scratch);
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -805,7 +976,7 @@ mod tests {
             false,
         );
 
-        let plans = runs(&plan).expect("folders split too");
+        let (plans, scratch) = runs(&plan).expect("folders split too");
         assert_eq!(plans.len(), 3);
 
         let outs: Vec<_> = plans.iter().map(|plan| plan.out.clone()).collect();
@@ -828,6 +999,7 @@ mod tests {
             assert!(sub.out.is_dir(), "and the folder was made");
         }
 
+        drop(scratch);
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -852,19 +1024,67 @@ mod tests {
             false,
         );
 
-        let plans = runs(&plan).expect("a mixed list splits");
+        let (_plans, scratch) = runs(&plan).expect("a mixed list splits");
         assert!(dir.join(args::SINGLES_NAME).exists());
-        drop(Scratch::of(&plans));
+        drop(scratch);
         assert!(!dir.join(args::SINGLES_NAME).exists());
         assert!(!dir.join(args::PLAYLISTS_NAME).exists());
 
-        // ...and a plan holding the caller's own list is not something to delete.
-        let plain = plan_over(&dir, "https://example.invalid/a\n", false);
-        drop(Scratch::of(&runs(&plain).unwrap()));
-        assert!(
-            plain.from_file.as_ref().unwrap().exists(),
-            "a file this did not write is not this function's to remove"
-        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Regression. The file a front end writes the links into is scratch too, and nothing used to
+    /// remove it: the page wrote one on every Fetch and a folder of songs collected one per
+    /// download. Both shapes matter — for a marked list the asked file is not among the plans that
+    /// come back, it is what was read to make them, so it can only be caught from the plan going in.
+    #[test]
+    fn the_list_a_front_end_wrote_goes_away_too_however_the_run_was_split() {
+        for (name, list) in [
+            ("asked-plain", "https://example.invalid/a\n"),
+            (
+                "asked-split",
+                "https://example.invalid/a\n--playlist https://example.invalid/list\n",
+            ),
+        ] {
+            let dir = scratch(name);
+            let asked = dir.join(args::ASKED_NAME);
+            std::fs::write(&asked, list).expect("write the list");
+            let plan = args::Plan {
+                from_file: Some(asked.clone()),
+                ..plan_over(&dir, list, false)
+            };
+
+            let (_plans, scratch) = runs(&plan).expect("either shape is a run");
+            assert!(asked.exists(), "still there while the fetch is happening");
+            drop(scratch);
+            assert!(!asked.exists(), "and gone when it is over ({name})");
+
+            let _ = std::fs::remove_dir_all(&dir);
+        }
+    }
+
+    /// **The most important assertion about `Scratch`.** A `from_file` is just as likely to be the
+    /// list somebody maintains by hand in that same folder, and deleting it at the end of a
+    /// successful fetch would be the worst bug this program could have. The filter is by name, and
+    /// this is what holds it to that.
+    #[test]
+    fn a_list_somebody_maintains_by_hand_is_never_removed() {
+        let dir = scratch("hand-written");
+        for name in [args::BATCH_NAME, "list.txt", "songs.kmvf"] {
+            let own = dir.join(name);
+            std::fs::write(&own, "https://example.invalid/a\n").expect("write the list");
+            let plan = args::Plan {
+                from_file: Some(own.clone()),
+                ..plan_over(&dir, "https://example.invalid/a\n", false)
+            };
+
+            let (_plans, scratch) = runs(&plan).expect("one run");
+            drop(scratch);
+            assert!(
+                own.exists(),
+                "a file this did not write is not this function's to remove ({name})"
+            );
+        }
 
         let _ = std::fs::remove_dir_all(&dir);
     }

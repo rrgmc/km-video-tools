@@ -29,6 +29,45 @@
 //! selector or a cookie browser is a much larger promise than this, and every one of them would have
 //! to become another axis the run is split along.
 //!
+//! # A header, for the things that are true of the whole list
+//!
+//! That refusal is about a *line*, and it does not reach a setting that is true of the run. A cookie
+//! browser is one field of an [`crate::args::Plan`] shared by every run a list produces, so it
+//! splits nothing — and a folder that already says what to fetch into it should be able to say how.
+//!
+//! ```text
+//! --cookies-from-browser firefox
+//! --normalize
+//! --limit 50
+//!
+//! https://youtu.be/aaaaaaaaaaa
+//! --out anime https://youtu.be/bbbbbbbbbbb
+//! ```
+//!
+//! **The header is every line before the first URL**, blanks and comments included, and it ends at
+//! the first line that is not a setting. One rule, and it is the rule that makes a bare `--playlist`
+//! unambiguous: at the top it is the run's answer for lines that do not say, and in front of a URL
+//! it is that line's. [`read_entry`] already reads a line that is nothing but a marker as no line at
+//! all, so the two never met.
+//!
+//! Each is spelled as the `km-video-fetch` flag it overrides, for the reason the markers above are:
+//! it is the one spelling somebody reading the file already knows. [`Settings`] lists them.
+//!
+//! **A line the header does not understand ends the header** rather than being refused, which is
+//! [`read_entry`]'s own treatment of a word that is not a marker. `--limit abc` becomes a URL, and
+//! yt-dlp says it is not one — loud, in the words of the program that would know, and without this
+//! module growing a way to fail that [`read`] has spent its whole life not having.
+//!
+//! # What a header may not say, which is the more interesting half
+//!
+//! * **`--out`** — the destination is where the file lives. A list that moved its own folder could
+//!   not be copied anywhere. The per-line `--out` already exists and is relative to the run's own.
+//! * **`--dry-run`, `--strict`, `--show-command`** — properties of an invocation, not of a folder.
+//!   A folder that always simulates is a folder that never downloads.
+//! * **`--from-file`** — it *is* the file.
+//! * **`--yt-dlp`** — a fact about a machine, not about a folder. A list copied to another machine
+//!   would carry a path that does not exist there.
+//!
 //! # A file with no markers is not this tool's file
 //!
 //! It is an ordinary yt-dlp batch file, and [`crate::fetch`] hands it over untouched rather than
@@ -93,6 +132,105 @@ impl Entry {
     pub fn expands(&self, by_default: bool) -> bool {
         self.expand.unwrap_or(by_default)
     }
+}
+
+/// What a header said about the whole list.
+///
+/// Every field is what the same-named `km-video-fetch` flag means, and every one of them is a single
+/// value shared by every run the list produces — which is what separates these from the per-line
+/// markers and is why they cost nothing. See this module's header for the four that are refused.
+///
+/// **How this meets what was asked for on the command line is not decided here.** It is
+/// [`crate::fetch::Request::apply_list_settings`], because a `Request` is the only thing holding all
+/// of these at once — and because *who* applies it is load-bearing: a front end that shows these to
+/// somebody before they press Fetch must not have them folded in a second time behind the form.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Settings {
+    /// `--playlist`: expand a playlist, for lines that do not say for themselves.
+    pub playlist: bool,
+    /// `--subs`: mux subtitles in.
+    pub subs: bool,
+    /// `--normalize`: re-encode anything that lands outside the profile.
+    pub normalize: bool,
+    /// `--no-archive`: fetch what is already in the folder's archive again.
+    pub no_archive: bool,
+    /// `--limit N`: take at most this many items from a playlist.
+    pub limit: Option<u32>,
+    /// `--cookies-from-browser BROWSER`: which browser's cookies to use.
+    ///
+    /// Not checked here. An unknown one is [`crate::fetch::fetch`]'s to refuse, in the one place
+    /// that already words it well, and it must be refused the same whichever way it arrived.
+    pub cookies_from_browser: Option<String>,
+    /// `--format SELECTOR`: replace the format selector.
+    pub format: Option<String>,
+    /// `--sort ORDER`: replace the format sort order.
+    pub sort: Option<String>,
+}
+
+/// Reads one settings line into `settings`, and says whether it was one.
+///
+/// `false` ends the header — see this module's doc for why that is a reinterpretation rather than a
+/// refusal. A valued setting with nothing after it is not a setting, so a bare `--limit` ends the
+/// header rather than quietly meaning nothing.
+fn read_setting(settings: &mut Settings, line: &str) -> bool {
+    let (word, value) = line
+        .split_once(char::is_whitespace)
+        .map_or((line, ""), |(word, rest)| (word, rest.trim()));
+
+    match (word, value) {
+        (EXPAND_MARKER, "") => settings.playlist = true,
+        ("--subs", "") => settings.subs = true,
+        ("--normalize", "") => settings.normalize = true,
+        ("--no-archive", "") => settings.no_archive = true,
+        ("--limit", value) if !value.is_empty() => match value.parse() {
+            Ok(limit) => settings.limit = Some(limit),
+            Err(_) => return false,
+        },
+        ("--cookies-from-browser", value) if !value.is_empty() => {
+            settings.cookies_from_browser = Some(value.to_owned());
+        }
+        ("--format", value) if !value.is_empty() => settings.format = Some(value.to_owned()),
+        ("--sort", value) if !value.is_empty() => settings.sort = Some(value.to_owned()),
+        _ => return false,
+    }
+    true
+}
+
+/// Splits a list into what its header said and everything after it.
+///
+/// **The one function that must be reached from every path that reads a list**, and the reason is
+/// the web UI rather than this one: the page merges several lists into the file it hands yt-dlp, and
+/// a header line surviving that merge would be fetched as a URL. So [`merge`] calls this, and
+/// therefore so do [`entries_in`] and [`read`].
+fn split_header(text: &str) -> (Settings, &str) {
+    let mut settings = Settings::default();
+    let mut header = 0;
+    for line in text.split_inclusive('\n') {
+        let trimmed = line.trim();
+        // Blanks and comments do not end the header; they are also nothing to the body.
+        if !(trimmed.is_empty()
+            || trimmed.starts_with(COMMENT)
+            || read_setting(&mut settings, trimmed))
+        {
+            break;
+        }
+        header += line.len();
+    }
+    (settings, &text[header..])
+}
+
+/// What a list said about itself, and the links in it.
+#[must_use]
+pub fn parse(text: &str) -> (Settings, Vec<Entry>) {
+    (split_header(text).0, entries_in(text))
+}
+
+/// What a list on disk said about itself, and nothing where it says nothing or cannot be read.
+///
+/// [`read`]'s rule, for [`read`]'s reason: a file nobody can read asks for nothing.
+#[must_use]
+pub fn settings_of(path: &Path) -> Settings {
+    std::fs::read_to_string(path).map_or_else(|_| Settings::default(), |text| split_header(&text).0)
 }
 
 /// Reads one line, or `None` for a blank, a comment, or a marker with nothing after it.
@@ -226,7 +364,10 @@ pub fn read(path: &Path) -> Vec<Entry> {
 pub fn merge(sources: &[&str]) -> Vec<Entry> {
     let mut all: Vec<Entry> = Vec::new();
     for text in sources {
-        for line in text.lines() {
+        // **Each source's own header, dropped before its links are read.** Every source here is a
+        // whole list — a textarea, a picked file, a folder's own — and any of them may carry one.
+        let (_, body) = split_header(text);
+        for line in body.lines() {
             let Some(entry) = read_entry(line) else {
                 continue;
             };
@@ -303,6 +444,123 @@ pub fn destination(root: &Path, said: &str) -> Result<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Everything a header may say, in one file, read off in one pass.
+    #[test]
+    fn a_header_says_what_is_true_of_the_whole_list() {
+        let (settings, entries) = parse(
+            "--playlist\n\
+             --subs\n\
+             --normalize\n\
+             --no-archive\n\
+             --limit 50\n\
+             --cookies-from-browser firefox:work\n\
+             --format bv*+ba/b\n\
+             --sort res:1080,fps\n\
+             \n\
+             https://example.invalid/a\n",
+        );
+
+        assert_eq!(
+            settings,
+            Settings {
+                playlist: true,
+                subs: true,
+                normalize: true,
+                no_archive: true,
+                limit: Some(50),
+                cookies_from_browser: Some("firefox:work".to_owned()),
+                format: Some("bv*+ba/b".to_owned()),
+                sort: Some("res:1080,fps".to_owned()),
+            }
+        );
+        assert_eq!(entries, vec![Entry::plain("https://example.invalid/a")]);
+    }
+
+    /// **The assertion the whole feature rests on.** A header line that survived into the links
+    /// would be handed to yt-dlp as a URL, and every path that reads a list goes through `merge`.
+    #[test]
+    fn a_header_is_never_mistaken_for_a_link() {
+        let list = "--cookies-from-browser firefox\n\nhttps://example.invalid/a\n";
+        assert_eq!(
+            entries_in(list),
+            vec![Entry::plain("https://example.invalid/a")]
+        );
+        assert_eq!(
+            merge(&[list, "https://example.invalid/b\n"]),
+            vec![
+                Entry::plain("https://example.invalid/a"),
+                Entry::plain("https://example.invalid/b"),
+            ],
+            "and every source gets its own header taken off"
+        );
+    }
+
+    /// The header is only the top of the file, which is what keeps a bare `--playlist` from
+    /// meaning two things at once: at the top it is the run's answer, in front of a URL it is that
+    /// line's. Blanks and comments do not end it.
+    #[test]
+    fn the_header_ends_at_the_first_link_and_a_marker_after_it_is_a_marker() {
+        let (settings, entries) = parse(
+            "# a heading\n\
+             \n\
+             --limit 3\n\
+             ; and a comment\n\
+             https://example.invalid/a\n\
+             --playlist https://example.invalid/list\n",
+        );
+
+        assert_eq!(settings.limit, Some(3));
+        assert!(
+            !settings.playlist,
+            "the marker below the first link is that line's, not the run's"
+        );
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[1].expand, Some(true));
+    }
+
+    /// A bare `--playlist` at the top is the one spelling that had to be checked in both places.
+    #[test]
+    fn a_bare_marker_at_the_top_is_the_runs_answer() {
+        let (settings, entries) = parse("--playlist\nhttps://example.invalid/list\n");
+        assert!(settings.playlist);
+        assert_eq!(entries, vec![Entry::plain("https://example.invalid/list")]);
+    }
+
+    /// A line the header cannot use ends it rather than being refused — see the module doc. The
+    /// cost is that a typo becomes a URL, and yt-dlp says so in words that name it.
+    #[test]
+    fn a_line_the_header_does_not_understand_ends_the_header() {
+        for bad in [
+            "--limit abc",
+            "--limit",
+            "--cookies-from-browser",
+            "--nonsense",
+            "--sort",
+        ] {
+            let list = format!("{bad}\nhttps://example.invalid/a\n");
+            let (settings, entries) = parse(&list);
+            assert_eq!(settings, Settings::default(), "{bad} set nothing");
+            assert_eq!(
+                entries.len(),
+                2,
+                "{bad} became a link, as yt-dlp will report"
+            );
+            assert_eq!(entries[0].url, bad);
+        }
+    }
+
+    /// The compatibility half: a list with no header is what it has always been.
+    #[test]
+    fn a_list_with_no_header_says_nothing_and_reads_as_it_always_did() {
+        let list =
+            "# a heading\n\nhttps://example.invalid/a\n--out anime https://example.invalid/b\n";
+        let (settings, entries) = parse(list);
+        assert_eq!(settings, Settings::default());
+        assert_eq!(entries, entries_in(list));
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[1].out.as_deref(), Some("anime"));
+    }
 
     /// The compatibility case, and the one that matters most: an ordinary list of links is an
     /// ordinary list of links, and nothing here has an opinion about it.

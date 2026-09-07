@@ -51,7 +51,8 @@
   <label class="field">
     <span>Links, one per line
       <small>A line may start with <code>--playlist</code>, <code>--no-playlist</code> or
-        <code>--out&nbsp;folder</code> to say what that one is and where it goes.</small></span>
+        <code>--out&nbsp;folder</code> to say what that one is and where it goes. Lines above the
+        first link set the boxes below for the whole list.</small></span>
     <textarea name="urls" rows="6" spellcheck="false"
               placeholder="https://&hellip;&#10;--playlist https://&hellip;&#10;--out anime https://&hellip;"></textarea>
   </label>
@@ -115,7 +116,7 @@
     </label>
 
     <label class="check">
-      <input type="checkbox" name="no_archive">
+      <input type="checkbox" name="no_archive" {% if no_archive %}checked{% endif %}>
       <span>Fetch things already in the archive again
         <small>Not remembered — it is a thing you do once.</small></span>
     </label>

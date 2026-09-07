@@ -59,6 +59,12 @@ pub struct Index {
     pub normalize: bool,
     /// Mux subtitles.
     pub subs: bool,
+    /// Fetch what is already in the archive again.
+    ///
+    /// **The one box that nothing remembers**, and it stays that way: fetching everything twice
+    /// is a thing somebody does once for a reason. It is here because a list may ask for it, and
+    /// a box that was ticked by the list must show as ticked.
+    pub no_archive: bool,
     /// At most this many from a playlist, as typed. Empty for no limit.
     pub limit: String,
     /// A browser to take cookies from, as typed.
@@ -97,6 +103,28 @@ fn page(state: &State) -> Index {
         .opened()
         .filter(|opened| own_list.as_deref() != Some(opened.as_path()));
 
+    // **What a list asks for is drawn onto the controls rather than applied behind them.** It is
+    // a stronger statement than anything remembered — somebody wrote it into that folder — but
+    // it is still only what will happen unless the person looking changes it, and the page is
+    // where they would. `handlers` then reads the form and nothing folds these in twice; see
+    // `fetch::Request::apply_list_settings` for why that separation is the whole design.
+    //
+    // Both lists, in `Form::entries`' order of precedence: the one opened just now beats the
+    // one the folder has always carried.
+    let asked = [own_list.as_deref(), opened_list.as_deref()]
+        .into_iter()
+        .flatten()
+        .fold(km_video_core::list::Settings::default(), |mut all, list| {
+            let said = km_video_core::list::settings_of(list);
+            all.playlist |= said.playlist;
+            all.subs |= said.subs;
+            all.normalize |= said.normalize;
+            all.no_archive |= said.no_archive;
+            all.limit = said.limit.or(all.limit);
+            all.cookies_from_browser = said.cookies_from_browser.or(all.cookies_from_browser);
+            all
+        });
+
     Index {
         app_name: APP_NAME,
         out: settings.out.clone(),
@@ -110,11 +138,20 @@ fn page(state: &State) -> Index {
             .as_deref()
             .map_or(0, |list| km_video_core::list::read(list).len()),
         opened_list: opened_list.map(|list| list.display().to_string()),
-        playlist: settings.playlist,
-        normalize: settings.normalize,
-        subs: settings.subs,
-        limit: settings.limit.map(|n| n.to_string()).unwrap_or_default(),
-        cookies_from_browser: settings.cookies_from_browser.clone().unwrap_or_default(),
+        playlist: settings.playlist || asked.playlist,
+        normalize: settings.normalize || asked.normalize,
+        subs: settings.subs || asked.subs,
+        no_archive: asked.no_archive,
+        limit: asked
+            .limit
+            .or(settings.limit)
+            .map(|n| n.to_string())
+            .unwrap_or_default(),
+        cookies_from_browser: asked
+            .cookies_from_browser
+            .clone()
+            .or_else(|| settings.cookies_from_browser.clone())
+            .unwrap_or_default(),
         browsers: &km_video_core::args::COOKIE_BROWSERS,
         job: state.job().map(|job| job.view()),
         results: state.job().map(|job| job.results()).unwrap_or_default(),
@@ -226,6 +263,49 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).expect("a scratch folder");
         dir
+    }
+
+    /// **A list's header is drawn onto the controls, not applied behind them.**
+    ///
+    /// The reason this is a test rather than an implementation detail: `handlers` builds the
+    /// request from the form and folds nothing in a second time, so if these boxes did not come
+    /// up ticked the list would be silently ignored — and if anything folded them in twice, a box
+    /// somebody unticked would come back. Both failures look like the page working.
+    #[test]
+    fn a_lists_header_comes_up_on_the_page_as_ticked_boxes() {
+        let dir = scratch("header");
+        let songs = dir.join("songs");
+        std::fs::create_dir_all(&songs).expect("a folder of songs");
+
+        let own = songs.join(km_video_core::args::BATCH_NAME);
+        std::fs::write(
+            &own,
+            "--normalize\n--subs\n--no-archive\n--limit 25\n--cookies-from-browser firefox\n\nhttps://example.invalid/a\n",
+        )
+        .expect("a list with a header");
+
+        let state = State::new(dir.join("data"), None);
+        assert!(state.open_list(&own));
+
+        let page = page(&state);
+        assert!(
+            page.normalize,
+            "the list asked for it and nothing remembered it"
+        );
+        assert!(page.subs);
+        assert!(page.no_archive);
+        assert_eq!(page.limit, "25");
+        assert_eq!(page.cookies_from_browser, "firefox");
+        assert!(
+            !page.playlist,
+            "and says nothing about what it did not mention"
+        );
+        assert_eq!(
+            page.own_list_count, 1,
+            "the header is not one of the links, which is the bug this would hide"
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// The list somebody opened is offered once, not twice.

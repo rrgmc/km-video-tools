@@ -20,6 +20,14 @@
 //! it. It does so the same way `profile::transcode` does: **each pipe is drained by a thread of its
 //! own**, so neither can fill while nothing reads it. The caller's line sink runs on the stdout
 //! thread. Nothing about [`spawn`] changes; the two exist side by side because the choice is real.
+//!
+//! # The console window is the second half of that same choice
+//!
+//! On Windows a child of a GUI-subsystem parent is given a console window of its own unless it
+//! is told otherwise, and `km-video-downloader` is such a parent — so every call in this module
+//! but one carries [`crate::child::without_a_console_window`]. [`spawn`] is the exception, and
+//! for the same reason it inherits in the first place: the flag would take away the console it
+//! is being handed. That module states the rule the four call sites here are decided by.
 
 use std::ffi::{OsStr, OsString};
 use std::path::{Path, PathBuf};
@@ -27,6 +35,8 @@ use std::process::{Command, Stdio};
 
 use anyhow::{Context, Result, bail};
 use serde::Deserialize;
+
+use crate::child::without_a_console_window;
 
 /// What yt-dlp is called when nothing says otherwise.
 pub const YT_DLP: &str = "yt-dlp";
@@ -49,7 +59,7 @@ pub fn binary(override_path: Option<&Path>) -> OsString {
 
 /// Asks yt-dlp its version, which doubles as proving it can be run at all.
 pub fn version(binary: &OsStr) -> Result<String> {
-    let output = Command::new(binary)
+    let output = without_a_console_window(&mut Command::new(binary))
         .arg("--version")
         .stdin(Stdio::null())
         .output()
@@ -122,7 +132,7 @@ pub fn today() -> i64 {
 /// yt-dlp silently produces a `.webm` beside a `.m4a` and reports success, which is a far worse
 /// outcome than being told now.
 pub fn ensure_ffmpeg() -> Result<()> {
-    Command::new("ffmpeg")
+    without_a_console_window(&mut Command::new("ffmpeg"))
         .arg("-version")
         .stdin(Stdio::null())
         .stdout(Stdio::null())
@@ -142,6 +152,9 @@ pub fn ensure_ffmpeg() -> Result<()> {
 /// region-locked fails the whole run, and everything else in it still downloaded. The caller says
 /// so and goes on to check what did arrive.
 pub fn spawn(binary: &OsStr, args: &[OsString]) -> Result<bool> {
+    // **The one call here without [`crate::child::without_a_console_window`]**, and the only one
+    // that inherits rather than captures. See that module: the flag detaches a child from the
+    // console it was given, which is the very thing this function exists to hand over.
     let status = Command::new(binary)
         .args(args)
         .stdin(Stdio::null())
@@ -192,7 +205,7 @@ pub fn spawn_watched(
     args: &[OsString],
     mut on_line: impl FnMut(&str) -> Flow,
 ) -> Result<bool> {
-    let mut child = Command::new(binary)
+    let mut child = without_a_console_window(&mut Command::new(binary))
         .args(args)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())

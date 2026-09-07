@@ -316,6 +316,29 @@ report.
 `--help` and the address. A program cannot choose at run time — the subsystem is a field in the PE
 header fixed by the linker — so it is two binaries or it is neither.
 
+## A GUI subsystem is also a promise about children
+
+The subsystem is not only a linker field. A GUI-subsystem process has **no console for a child to
+inherit**, so Windows gives each child one of its own — and this program's whole job is running
+other programs. Left alone it is a black window per yt-dlp run, one per file re-encoded, one per
+`ffprobe`, and one more for the browser it opens at startup.
+
+So every spawn carries `CREATE_NO_WINDOW`, through `km_video_core::child::without_a_console_window`
+— **except one**. `run::spawn` is the command line's path and hands its inherited terminal to yt-dlp
+so yt-dlp draws its own progress bar there; the flag detaches a child from the console it was given,
+which is exactly what that call exists to pass along. It also buys nothing there, a console-subsystem
+parent having a console already.
+
+**Hide the console wherever the child's output is captured or discarded; never where the child is
+handed a terminal on purpose.** Every other call already pipes or nulls its output, so the window was
+never showing anybody anything.
+
+This was got wrong once, and the shape of the mistake is worth keeping. The helper and the reasoning
+above both existed, applied to `ffmpeg` and `ffprobe`, while the program was still console-subsystem
+and it was merely tidy. The commit that made the downloader a real application changed the subsystem
+without extending the helper to `run.rs`, so the case the comment described came true in the one
+module that did not have it.
+
 ## The icon is the same drawing under a fifth palette
 
 Angular bands, a near-black plate, `KM` with a coloured M: karaokemachine's mark, because these

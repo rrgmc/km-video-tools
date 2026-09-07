@@ -123,6 +123,25 @@ pub async fn start(AxumState(state): AxumState<State>, multipart: Multipart) -> 
         }
     };
 
+    // **The two settings a list may carry that this page has no control for.**
+    //
+    // Everything else a header can say is drawn onto a box or a field by `views::page`, so the
+    // form above already carries it and folding it in again here would put back what somebody had
+    // just unticked. `--format` and `--sort` have nowhere to be shown — they are yt-dlp selector
+    // syntax, not a checkbox, and the page deliberately does not offer them — so nothing the form
+    // sends could be overruled by taking them from the list.
+    //
+    // The rule, in a sentence: the page owns what it shows, and the list owns the two it does not.
+    let asked = [form.own_list.as_deref(), form.opened_list.as_deref()]
+        .into_iter()
+        .flatten()
+        .map(|list| list::settings_of(std::path::Path::new(list)))
+        .fold(list::Settings::default(), |mut all, said| {
+            all.format = said.format.or(all.format);
+            all.sort = said.sort.or(all.sort);
+            all
+        });
+
     let archive = (!form.no_archive).then(|| args::Plan::default_archive(&out));
     let request = fetch::Request {
         plan: args::Plan {
@@ -134,8 +153,8 @@ pub async fn start(AxumState(state): AxumState<State>, multipart: Multipart) -> 
             archive,
             cookies_from_browser: form.cookies_from_browser,
             subs: form.subs,
-            format: None,
-            sort: None,
+            format: asked.format,
+            sort: asked.sort,
             dry_run: form.dry_run,
             progress_lines: true,
         },
@@ -235,6 +254,10 @@ fn plural(count: usize, one: &str, many: &str) -> String {
 /// links is an argv well past what Windows will accept, and this is the one place a page can hand
 /// over that many at once. It lands in the output folder under a name a person will recognise if an
 /// interrupted run ever leaves one behind.
+///
+/// **Scratch, and taken away again when the fetch is over.** `fetch::fetch` removes it — see the
+/// `Scratch` there, which knows this name. It used not to, and a folder of songs collected one of
+/// these per download.
 ///
 /// **Written through [`list::write`]**, so a line that said which it was or where it went says so
 /// again in the file. The page parses the markers only to carry them: what acts on them is

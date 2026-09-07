@@ -55,6 +55,7 @@
 use std::path::Path;
 use std::process::{Command, Stdio};
 
+use crate::child::without_a_console_window;
 use crate::probe::{VideoInfo, supports_pixel_format};
 use anyhow::{Context, Result, bail};
 
@@ -223,27 +224,6 @@ const H264_ENCODERS: [&str; 2] = ["libx264", "libopenh264"];
 /// desktop and already has one, and shelling out to the user's own ffmpeg is also what keeps this
 /// project's own linking story unchanged — nothing new is linked or distributed.
 const FFMPEG: &str = "ffmpeg";
-
-/// Start a child process without giving it a console window of its own.
-///
-/// **Not cosmetic, and it is the web UI this repository is laid out for that needs it.** A
-/// GUI-subsystem executable on Windows has no console for a child to inherit, so Windows hands each
-/// ffmpeg one of its own — a black window per file, through a batch that may be hundreds of them.
-/// Every call site here already captures what ffmpeg says, so that window was never showing anybody
-/// anything. A command line run from a terminal is unaffected: this hides a console that would have
-/// been *created*, never the one that is already there.
-#[cfg(windows)]
-const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-
-/// Applies [`CREATE_NO_WINDOW`], and is a no-op everywhere else.
-pub(crate) fn without_a_console_window(command: &mut Command) -> &mut Command {
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        command.creation_flags(CREATE_NO_WINDOW);
-    }
-    command
-}
 
 /// What the local ffmpeg can do, looked up once.
 #[derive(Debug, Clone, PartialEq, Eq)]
