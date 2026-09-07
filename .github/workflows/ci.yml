@@ -1,9 +1,23 @@
 name: ci
 
-# **One job, Ubuntu only, and no matrix.** This is pure Rust with no platform-specific code beyond a
-# `#[cfg(windows)]` process flag and no C dependencies at all, so a Windows or macOS runner would
-# compile the same crates to prove the same thing — and GitHub bills those at 2x and 10x. A matrix is
-# worth adding the day something here actually differs per platform.
+# **Two runners, because `std::path` is not the same program on both.** This is pure Rust with no C
+# dependencies, and that was long taken to mean one runner proved everything. It does not. Paths are
+# parsed by rules that differ per platform, and `list::destination` — which decides whether a line of
+# a list may name a folder — was written on Windows, passed there, and on Linux accepted `\windows`
+# and `C:\Windows`, a backslash being an ordinary filename character there. The first fix for that
+# then failed the other way round, because Windows takes the separator out of `anime\openings` and
+# hands back two spotless ordinary names. Each platform caught what the other could not, and only one
+# of them was running here.
+#
+# It is not only paths. There is a `#[cfg(windows)]` in `profile`, two in `desktop` and the whole of
+# the downloader's `build.rs`, none of which any job compiled until the second runner existed.
+#
+# **macOS is deliberately still absent**, because it would prove nothing this pair does not: its path
+# rules are Unix's, so Linux covers them, and GitHub bills it at 10x against Windows' 2x. The day
+# something here is genuinely Darwin-shaped is the day to add it.
+#
+# **`fail-fast: false`**, because the whole point is that one runner sees what the other cannot, and a
+# cancelled job is a platform that did not report.
 #
 # **No `--all-features`.** There are no features today, so the flag is a no-op; it is also a broken
 # job the day a member gains one, and removing it before it is needed is cheaper than after.
@@ -24,11 +38,20 @@ env:
 
 jobs:
   check:
-    name: check (ubuntu-latest)
-    runs-on: ubuntu-latest
+    name: check (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
 
     steps:
-      - uses: actions/checkout@v4
+      # v7 rather than v4: v4 targets Node 20, which the runners now force onto Node 24 and warn
+      # about on every run. v5 is the release that moved to Node 24; v7 is current, and its breaking
+      # change — refusing to check a fork's head out for `pull_request_target` and `workflow_run` —
+      # cannot reach this file, which triggers on plain `pull_request`.
+      - uses: actions/checkout@v7
 
       # **The toolchain comes from `rust-toolchain.toml` and is named nowhere in this file.**
       # `rustup toolchain install` with no toolchain argument resolves that file, the `components`
@@ -55,7 +78,12 @@ jobs:
       # the feature. Installed rather than turned off, so that what CI builds is what a person
       # building this gets: a `--no-default-features` job would leave the window code unchecked
       # until somebody on a desktop noticed.
+      #
+      # **Linux only, because there is nothing to install on the other one.** `wry` reaches WebView2
+      # on Windows and that ships with the OS, and no test here spawns a program. The day one does,
+      # ffmpeg has to arrive on both runners rather than this step growing an `else`.
       - name: Dependencies
+        if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
