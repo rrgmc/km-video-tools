@@ -23,6 +23,13 @@
 ; no shared state: `PrivilegesRequired=lowest` puts them in {localappdata}\Programs, adds the PATH
 ; entry under HKCU\Environment, and raises no UAC prompt at any point. It is also where `winget`
 ; already puts per-user software.
+;
+; **Two kinds of registry work, and they are in two places on purpose.** The file association is a
+; set of keys this installer creates and owns whole, so it is declarative [Registry] with
+; `uninsdeletekey` and Inno takes it back out on the way through. The PATH entry is one item inside
+; a value somebody else created, which has no declarative form at all -- so it stays in [Code] at
+; the bottom. The rule is *did we make this key, or are we editing somebody else's*, and nothing
+; about it is a matter of taste.
 
 #ifndef Payload
   #error Payload is not defined. Run tools/platform/windows/installer.sh; it assembles the folder this needs.
@@ -44,6 +51,17 @@
 #define AppName "KM Video Tools"
 #define AppPublisher "Rangel Reale"
 #define AppUrl "https://github.com/rrgmc/km-video-tools"
+
+; The list of links a folder can carry for itself, and the extension it is named with --
+; `km_video_core::args::EXTENSION` and `BATCH_NAME`, which are where those are decided.
+;
+; **The association is on the extension, not on the name.** It opens any such file anywhere, which
+; is a different rule from the one that says which file a *folder* is allowed to keep for itself.
+;
+; **Never change ProgId, for AppId's reason.** It is what the extension key points at, and renaming
+; it leaves the old class behind with nothing referring to it and nothing to remove it.
+#define Extension ".kmvf"
+#define ProgId "KMVideoTools.FetchList"
 
 ; The runtime km-video-downloader puts in its window. `wry` uses the platform's own webview, which on
 ; Windows is WebView2 -- Microsoft's evergreen bootstrapper is tiny and installs per-user without
@@ -89,6 +107,11 @@ SolidCompression=yes
 ; PATH edit in [Code], so a console opened afterwards sees it without a sign-out.
 ChangesEnvironment=yes
 
+; Its counterpart for the association, and the same kind of declaration for the same kind of reason:
+; Inno broadcasts SHCNE_ASSOCCHANGED, so a .kmvf already on screen in Explorer takes this program's
+; icon straight away rather than at the next sign-in.
+ChangesAssociations=yes
+
 WizardStyle=modern
 DisableWelcomePage=no
 DisableDirPage=no
@@ -118,6 +141,10 @@ Name: "fetch"; Description: "km-video-fetch -- the same fetch on the command lin
 Name: "addpath"; Description: "Add the installation folder to my PATH"; GroupDescription: "Set up:"
 Name: "desktopicon"; Description: "Create a desktop shortcut for KM Video Downloader"; \
   GroupDescription: "Set up:"; Components: downloader; Flags: unchecked
+; Ticked, and only alongside the window: opening a list is what the windowed program does with one,
+; so an install of km-video-fetch alone must not claim an extension it has nothing to answer with.
+Name: "associate"; Description: "Open {#Extension} list files with KM Video Downloader"; \
+  GroupDescription: "Set up:"; Components: downloader
 
 [Files]
 ; -- the programs. One per component; no console twin, see the header. ---------------------------
@@ -141,6 +168,54 @@ Source: "{#Payload}\LICENSE-APACHE";                 DestDir: "{app}"; Flags: ig
 ; sentences -- there is no folder to keep, removal is Add or remove programs, and the command is on
 ; the PATH rather than in the current directory. `dist_installed_readme` writes this one.
 Source: "{#Generated}\README.txt"; DestDir: "{app}"; Flags: ignoreversion
+
+[Registry]
+; The file association, all of it under this user's own classes. `PrivilegesRequired=lowest` means
+; there is no HKLM to write to, and a per-user association is what a per-user install should be
+; making anyway -- it claims the extension for whoever installed this and for nobody else on the
+; machine.
+;
+; **The extension key is treated as somebody else's and the class key as ours**, which is the same
+; distinction the header draws about [Code]. `{#Extension}` may already carry values this installer
+; never wrote, so only the three written here come back out and the key goes only if that leaves it
+; empty. `{#ProgId}` is created whole here, so it is deleted whole.
+Root: HKCU; Subkey: "Software\Classes\{#Extension}"; ValueType: string; ValueName: ""; \
+  ValueData: "{#ProgId}"; Flags: uninsdeletevalue uninsdeletekeyifempty; \
+  Tasks: associate; Components: downloader
+Root: HKCU; Subkey: "Software\Classes\{#Extension}"; ValueType: string; ValueName: "Content Type"; \
+  ValueData: "text/plain"; Flags: uninsdeletevalue uninsdeletekeyifempty; \
+  Tasks: associate; Components: downloader
+; What makes an editor offer to open one and a search put it under Documents. A list is a text file
+; that happens to have a grammar, and there is nothing to gain by hiding the first half from the
+; rest of the machine.
+Root: HKCU; Subkey: "Software\Classes\{#Extension}"; ValueType: string; ValueName: "PerceivedType"; \
+  ValueData: "text"; Flags: uninsdeletevalue uninsdeletekeyifempty; \
+  Tasks: associate; Components: downloader
+
+Root: HKCU; Subkey: "Software\Classes\{#ProgId}"; ValueType: string; ValueName: ""; \
+  ValueData: "KM Video Tools fetch list"; Flags: uninsdeletekey; \
+  Tasks: associate; Components: downloader
+Root: HKCU; Subkey: "Software\Classes\{#ProgId}\DefaultIcon"; ValueType: string; ValueName: ""; \
+  ValueData: "{app}\km-video-downloader.exe,0"; Tasks: associate; Components: downloader
+; **The windowed executable, and the quoting is the whole of it.** `%1` unquoted loses everything
+; after the first space, which is most of the paths anybody keeps songs in.
+Root: HKCU; Subkey: "Software\Classes\{#ProgId}\shell\open\command"; ValueType: string; ValueName: ""; \
+  ValueData: """{app}\km-video-downloader.exe"" ""%1"""; Tasks: associate; Components: downloader
+
+; **Not the association, and worth keeping apart from it.** This is what puts the program in the
+; Open with list for a .kmvf -- which is how somebody who has since assigned the extension to an
+; editor still reaches it, and how they assign it back.
+;
+; **Two entries for one fact, and the first one is not decoration.** `uninsdeletekey` on the
+; SupportedTypes key below removes that key and stops there, which left
+; `Applications\km-video-downloader.exe` behind as an empty shell -- a program with no files on the
+; machine still listed in the registry. Inno undoes [Registry] in reverse, so the parent is named
+; *first* here in order to be considered *last*, by which time the child is gone and it is empty.
+Root: HKCU; Subkey: "Software\Classes\Applications\km-video-downloader.exe"; \
+  Flags: uninsdeletekeyifempty; Tasks: associate; Components: downloader
+Root: HKCU; Subkey: "Software\Classes\Applications\km-video-downloader.exe\SupportedTypes"; \
+  ValueType: string; ValueName: "{#Extension}"; ValueData: ""; Flags: uninsdeletekey; \
+  Tasks: associate; Components: downloader
 
 [Icons]
 Name: "{group}\KM Video Downloader";       Filename: "{app}\km-video-downloader.exe"; Components: downloader
