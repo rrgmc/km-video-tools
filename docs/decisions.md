@@ -550,6 +550,55 @@ build directory moves, and a hard-coded path produces the worst failure this kin
 cargo prints `Finished` and the next line says the executable was not produced. `dist_target_dir`
 asks cargo.
 
+## A staged folder is chosen by the manifest and named by the binary
+
+`dist_fresh_dir` clears only the folder it is about to write, and a folder's name carries its version
+— so a build of 1.8.0 does not replace 1.7.0, it lands beside it. `task clean:old` is what takes the
+older one away, and until it exists something has to decide which of the two is *the* staged build.
+
+**Picking the first glob match is the wrong answer, and it fails silently.** That is what
+`tools/dist/bin.sh` and `tools/platform/macos/installer.sh` each did, in two private copies of one
+`staged_dir` function: they globbed `<app>-*-<triple>`, and a glob expands in sorted order, so with
+both versions present they returned 1.7.0. Nothing downstream disagreed. `bin.sh` gathered the old
+executables and read the version out of one of *them*; both setup programs then read it out of that
+payload in turn. The result was an installer correctly labelled `1.7.0` carrying a build nobody asked
+for, on both platforms, with no failure anywhere for anybody to notice — which is the same class of
+mistake as a cleaner that reports success while matching nothing.
+
+`dist_staged_dir` in `tools/dist/common.sh` names the folder instead of searching for one, out of
+`dist_pkg_version` — one number, because every crate here is `version.workspace = true`.
+
+**This is not a breach of "from a binary, never a manifest."** That rule answers *what is this
+artifact*, and it still does: the version printed, the folder named by `tools/dist/cmd.sh`, and the
+number on every installer all still come from a binary's own `--version`. The manifest answers a
+different question — *which artifact did we mean* — and the two cannot contradict each other, because
+the folder's name was built out of that binary's answer in the first place. What changed is only the
+failure: a current build that is not staged now says so, where before it was quietly replaced by an
+older one.
+
+## `task clean` is a script, because Task's shell has no `rm`
+
+Task runs every command through its own embedded POSIX shell, which has `for`, `case` and parameter
+expansion everywhere but no `rm` — that is an external command, and there is no `rm.exe` on Windows
+any more than there is a `sed`. So `clean: rm -rf dist`, which stood in `Taskfile.yml`, was
+
+    "rm": executable file not found in $PATH
+    task: Failed to run task "clean": exit status 127
+
+from a PowerShell or a `cmd`. It appeared to work only from a Git Bash — the one shell whose `PATH`
+lends Task a coreutils it does not otherwise have — so the task was broken in precisely the situation
+the `SH` variable exists to serve, and looked fine in the one it does not need to.
+
+All three clean tasks are `tools/dist/clean.sh` now. The Taskfile chooses which script to run, which
+is what it already did for staging, and the deleting happens where coreutils exist. Inherited from
+karaokemachine, which hit this first and whose `clean:old` this one is a port of.
+
+**`--old` has no special cases, and that is the property to keep.** An entry is removed only when its
+name begins with its app's own name followed by a version that is not the wanted one, so anything
+unrecognized survives without being named here: the versionless `dist/bin/<platform>`, the generated
+directory the Windows installer clears itself, the macOS bundle whose number lives in its
+`Info.plist`, and the contents of any folder being kept.
+
 ## The staging scripts carry the executable bit, and `common.sh` does not
 
 `tools/dist/cmd.sh`, `tools/dist/bin.sh` and both `tools/platform/*/installer.sh` are mode `100755`

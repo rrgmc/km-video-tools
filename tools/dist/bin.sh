@@ -101,17 +101,10 @@ EXT="$(dist_exe_ext)"
 BIN="dist/bin/$PLATFORM"
 CONSOLE="dist/bin-console/$PLATFORM"
 
-staged_dir() { # <app>
-  local app="$1" match
-  for match in "$(dist_dir "$app" "$PLATFORM")/$app-"*"-$TRIPLE"; do
-    [ -d "$match" ] && { printf '%s' "$match"; return 0; }
-  done
-  return 1
-}
-
 for app in "${APPS[@]}"; do
-  if ! staged_dir "$app" >/dev/null; then
-    echo "dist-bin: nothing staged for $app under $(dist_dir "$app" "$PLATFORM")." >&2
+  if ! dist_staged_dir "$app" "$PLATFORM" >/dev/null; then
+    echo "dist-bin: the current version is not staged for $app; looked for" >&2
+    echo "          $(dist_dir "$app" "$PLATFORM")/$app-$(dist_pkg_version)-$TRIPLE" >&2
     if [ "$BUILD" -eq 0 ]; then
       echo "          --no-build was given, so nothing was staged for it here either. Run this" >&2
       echo "          script without it, or tools/dist/cmd.sh first." >&2
@@ -138,7 +131,7 @@ gui_count=0
 console_count=0
 
 for app in "${APPS[@]}"; do
-  src="$(staged_dir "$app")"
+  src="$(dist_staged_dir "$app" "$PLATFORM")"
 
   # Rule 1's first half, asked before the loop because it decides what the bare executable *is*: a
   # bundle beside the folder's own binary means this product has two forms on this platform.
@@ -196,7 +189,9 @@ for app in "${APPS[@]}"; do
     esac
 
     # The version, from the first single-form executable that can answer for it -- from a binary and
-    # never a manifest, the same rule every other script here follows.
+    # never a manifest, the same rule every other script here follows. **Which folder that executable
+    # came out of is the manifest's answer**, not this one's; the two are different questions and
+    # `dist_staged_dir` in tools/dist/common.sh says why neither can contradict the other.
     if [ -z "$VERSION" ] && [ "$app" = km-video-fetch ]; then
       VERSION="$(dist_version "$entry")"
     fi

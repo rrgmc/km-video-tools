@@ -145,11 +145,17 @@ task dist:bin   # ...or one folder with every program in it
 task dist:setup # ...or a setup program, for the people who would rather not unpack one
 task run -- '<url>' --out ./songs
 task ui         # run the window
+task clean:old  # take away the staged releases that are not this version
 ```
 
 `task dist` writes `dist/<app>/<platform>/<app>-<version>-<triple>/` holding the executable, both
 licence texts and a README naming the version — plus the console twin on Windows, and a `.app`
 bundle on macOS. `dist/` is output and is never committed.
+
+A staged folder is never overwritten by a build of a *different* version — the version is part of its
+name — so yesterday's release sits beside today's until something takes it away. `task clean:old`
+does, keeping the current version and removing the rest; `--dry-run` shows what it would take first.
+`task clean` takes every staged release, and `task clean:all` adds what cargo built.
 
 `task dist:bin` answers the other question people ask of a build — *give me one folder with all of
 it in it*. It writes `dist/bin/<platform>/` and `dist/bin-console/<platform>/`: the first holds the

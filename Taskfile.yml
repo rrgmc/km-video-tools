@@ -3,11 +3,13 @@
 #   task --list        what is routine
 #   task check         fmt, clippy, tests -- in the order a failure is cheapest to read
 #   task dist          stage a folder somebody can be handed, into dist/
+#   task clean:old     take away the staged releases that are not this version
 #
 # **Everything here is a thin wrapper over cargo**, deliberately. A task that does something cargo
 # cannot is a task worth having; a task that renames `cargo test` is one more name to learn. The
 # three that earn their place are `check` (an order, not a command), `dist` (a shell script) and
-# `clean` (which knows that `dist/` is output too).
+# `clean` (which knows that `dist/` is output too -- and which is a script rather than an `rm`,
+# because Task's own shell has no `rm` on Windows; see the banner above it).
 #
 # **Run it from whatever shell you like -- cmd, PowerShell, Windows Terminal, Git Bash.** `dist` calls
 # a bash script, and typing it needs no bash: Task runs every command through its own embedded POSIX
@@ -160,13 +162,35 @@ tasks:
     cmds:
       - '"{{.SH}}" tools/platform/macos/installer.sh {{if .VERBOSE}}--verbose{{end}} {{.CLI_ARGS}}'
 
+  # -- clearing it out -------------------------------------------------------------------------------
+  #
+  # All three are tools/dist/clean.sh, and the shell lives there rather than here for a reason that is
+  # not style: Task's embedded shell has `for`, `case` and parameter expansion on every platform but
+  # **no `rm`** -- that is an external command, and there is no `rm.exe` on Windows any more than there
+  # is a `sed`. `clean: rm -rf dist` stood here until this script existed and, run from anything but a
+  # Git Bash, was `"rm": executable file not found in $PATH` every time. Choosing a script is what this
+  # file does for staging too. `--dry-run` is worth knowing about and is reached like any other flag.
+
   clean:
-    desc: Remove the staged output in dist/, leaving target/ alone
+    desc: 'Remove every staged release under dist/, leaving target/ alone (--dry-run to look first)'
     cmds:
-      - rm -rf dist
+      - '"{{.SH}}" tools/dist/clean.sh --all {{.CLI_ARGS}}'
+
+  # Keeps the current version and takes the rest. **It knows about no product in particular**, which is
+  # the property to preserve: one number out of the manifest covers everything under `dist/`, because
+  # every crate here is `version.workspace = true`. The things it can never remove -- the versionless
+  # `dist/bin/<platform>`, the macOS bundle -- are explained where they are handled, in the script.
+  #
+  # Worth running before `task dist:bin` or `task dist:setup` on any machine that has staged a previous
+  # release, and see the note above `dist_staged_dir` in tools/dist/common.sh for what used to happen
+  # when it was not.
+  clean:old:
+    desc: 'Remove staged releases from older versions, keeping the current one (--dry-run to look first)'
+    cmds:
+      - '"{{.SH}}" tools/dist/clean.sh --old {{.CLI_ARGS}}'
 
   clean:all:
     desc: Remove dist/ and everything cargo built
     cmds:
-      - rm -rf dist
+      - '"{{.SH}}" tools/dist/clean.sh --all {{.CLI_ARGS}}'
       - cargo clean

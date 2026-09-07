@@ -67,6 +67,48 @@ dist_dir() { # <app> <platform>
   printf 'dist/%s/%s' "$1" "$2"
 }
 
+# The workspace's version, out of the manifest and without building anything.
+#
+# **The one place a version is read from the manifest rather than from a binary**, and it is not the
+# exception to `dist_version()` below that it looks like: that answers "what is this artifact", this
+# answers "which artifact did we mean". Asking for one member is asking for all of them, because every
+# crate here is `version.workspace = true`.
+#
+# Two strips, because `cargo pkgid` has two output shapes: `...#km-video-fetch@1.8.0` when the package
+# name differs from its directory, and `...#1.8.0` when it does not. `##*@` is a no-op on the second,
+# which is the shape this workspace actually produces.
+dist_pkg_version() { # -> prints the workspace version
+  local p
+  p="$(cargo pkgid -p km-video-fetch)"
+  p="${p##*#}"
+  printf '%s' "${p##*@}"
+}
+
+# The staged folder for one app on one platform: `dist_dir()`'s rule with the current version in it.
+#
+# **It names the folder rather than searching for one, and that is the whole point.** This was two
+# private copies -- one in tools/dist/bin.sh, one in tools/platform/macos/installer.sh -- which globbed
+# `<app>-*-<triple>` and returned the *first* match. A glob expands in sorted order, so with 1.7.0 and
+# 1.8.0 both staged it returned 1.7.0, and everything downstream stayed consistent about it: bin.sh
+# gathered the old executables, read the version out of one of *them*, and both setup programs then
+# read it out of that payload in turn. The result was an installer correctly labelled `1.7.0` for a
+# build nobody asked for, on both platforms, with no failure anywhere to notice. `dist_fresh_dir`
+# clears only the folder it is about to write, so the loser of that comparison survives for ever --
+# `task clean:old` is what takes it away, and this is what stops it mattering.
+#
+# **Selecting by the manifest does not break the "from a binary, never a manifest" rule** that
+# tools/dist/bin.sh, both installers and `dist_version()` below all state. The manifest chooses *which
+# folder*; the binary inside it still says *what it is*, and the two cannot disagree, because
+# tools/dist/cmd.sh built that folder's name out of that binary's own `--version` in the first place.
+# What changes is only the failure: a current build that is not staged now says so, where before it
+# was silently replaced by an older one.
+dist_staged_dir() { # <app> <platform>  -> prints the staged folder, or fails
+  local dir
+  dir="$(dist_dir "$1" "$2")/$1-$(dist_pkg_version)-$(dist_host_triple)"
+  [ -d "$dir" ] || return 1
+  printf '%s' "$dir"
+}
+
 # The version out of the built executable rather than out of `Cargo.toml`.
 #
 # Asked of the artifact so the number in the folder name is the number the program will print — a

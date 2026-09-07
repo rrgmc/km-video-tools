@@ -102,17 +102,10 @@ fi
 
 TRIPLE="$(dist_host_triple)"
 
-staged_dir() { # <app>
-  local app="$1" match
-  for match in "$(dist_dir "$app" macos)/$app-"*"-$TRIPLE"; do
-    [ -d "$match" ] && { printf '%s' "$match"; return 0; }
-  done
-  return 1
-}
-
 for app in km-video-downloader km-video-fetch; do
-  if ! staged_dir "$app" >/dev/null; then
-    echo "installer: nothing staged for $app under $(dist_dir "$app" macos)." >&2
+  if ! dist_staged_dir "$app" macos >/dev/null; then
+    echo "installer: the current version is not staged for $app; looked for" >&2
+    echo "           $(dist_dir "$app" macos)/$app-$(dist_pkg_version)-$TRIPLE" >&2
     if [ "$BUILD" -eq 0 ]; then
       echo "           --no-build was given, so nothing was staged for it here either." >&2
     fi
@@ -120,8 +113,8 @@ for app in km-video-downloader km-video-fetch; do
   fi
 done
 
-DOWNLOADER_DIR="$(staged_dir km-video-downloader)"
-FETCH_DIR="$(staged_dir km-video-fetch)"
+DOWNLOADER_DIR="$(dist_staged_dir km-video-downloader macos)"
+FETCH_DIR="$(dist_staged_dir km-video-fetch macos)"
 BUNDLE="$DOWNLOADER_DIR/KM Video Downloader.app"
 
 if [ ! -d "$BUNDLE" ]; then
