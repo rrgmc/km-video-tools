@@ -89,9 +89,9 @@ fn page(state: &State) -> Index {
         out: settings.out.clone(),
         out_exists: out.as_deref().is_some_and(std::path::Path::is_dir),
         out_videos: out.as_deref().and_then(count_videos),
-        own_list_count: own_list.as_deref().map_or(0, |list| {
-            std::fs::read_to_string(list).map_or(0, |text| crate::handlers::urls_in(&text).len())
-        }),
+        own_list_count: own_list
+            .as_deref()
+            .map_or(0, |list| km_video_core::list::read(list).len()),
         own_list: own_list.map(|list| list.display().to_string()),
         playlist: settings.playlist,
         normalize: settings.normalize,

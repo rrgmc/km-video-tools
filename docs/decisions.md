@@ -82,6 +82,73 @@ depend on `clap` and `km-video-downloader` does not depend on `km-video-fetch`.
 `members = ["crates/*"]` follows from the same decision: a new program is a new directory and nothing
 else.
 
+## A marked list is several yt-dlp runs, because yt-dlp has no per-URL playlist option
+
+`--yes-playlist`/`--no-playlist` and `-P` are properties of an *invocation*. There is no per-URL form
+of either to reach for, so a list that says one of its lines is a whole playlist and the next is one
+video — or that two of them belong in different folders — cannot be one yt-dlp run. `fetch::runs`
+sorts the list into one run per distinct `(expand, destination)` pair and `fetch::fetch` runs them in
+turn.
+
+**The split is in `fetch` and not in `args`,** which builds an argv, spawns nothing, and does no file
+I/O at all. Deciding how many runs there are means reading the list. `runs` is a pure function of a
+plan and a file for exactly the reason `argv` is a pure function of a plan: so what it decides can be
+asserted by value rather than by running yt-dlp.
+
+**A list that says nothing is handed over unread and unrewritten** — byte for byte the argv this tool
+has always built. That is what keeps a `km-video-fetch.txt` somebody maintains by hand from being
+rewritten behind their back, and what keeps a list carrying things `list.rs` does not model working
+exactly as it did. An unreadable list says nothing and is yt-dlp's to complain about.
+
+**Single-video runs first, then playlist runs.** A folder's archive makes the first run win a
+duplicate, and *this one video* is the more specific statement than *this playlist that happens to
+contain it*; it is also the fast half, so somebody watching sees their named picks land before a
+two-hundred-item playlist starts. Fixed rather than derived from the flag, because an order that
+depended on a checkbox would be worse to reason about and worse to test.
+
+**Each destination keeps its own archive.** `ARCHIVE_NAME` already says an archive is a fact about
+*this folder* — which songs are in it — carried with it if the folder is copied elsewhere. So a video
+asked for in two folders lands in both, which is what asking for two folders meant.
+
+Four things about yt-dlp that the split made load-bearing, each read out of its `--help` or its
+behaviour rather than assumed:
+
+- **`--print-to-file` appends.** So the record file is removed *before* each run and read-and-deleted
+  *after* it. The shorter arrangement happens to work today; this one is correct either way.
+- **`--batch-file` is an ordinary path argument**, resolved against the working directory and neither
+  trimmed nor sanitised — `ARCHIVE_NAME`'s class, not `RECORDS_NAME`'s. So a generated list is passed
+  with its folder on it, and the record file is passed as a bare name, and one test asserts both
+  halves so the asymmetry cannot be half-remembered.
+- **`#`, `;` and `]` all start a comment** in a batch file. Only `#` was skipped before. Passing a `;`
+  line through untouched cost nothing; *re-emitting* it as a URL would be an extraction error for a
+  line nobody meant to fetch, and a marked list is written back out.
+- **A marked file is this tool's file, not yt-dlp's.** yt-dlp would read a marker as a comment or as
+  part of the URL. Which is the strongest reason an unmarked list is never rewritten.
+
+**`Event::Downloaded` stays one per fetch**, carrying the combined haul. A second would overwrite a
+caller's total with the last run's count alone — and where that run fetched nothing, `job.rs` reads
+zero as *nothing known yet* and leaves the bar sweeping for the whole checking phase of a run that
+succeeded. The `Command` event does fire per run, which is the narration being a narration.
+
+**`fetch` could not previously tell that a watched run had been stopped.** `run::spawn_watched` folds
+a stop into success on purpose — a killed child exits unsuccessfully, and reporting that as a failure
+would tell somebody who pressed Stop that yt-dlp had broken. With one run it did not matter, because
+the answer arrived with the `Downloaded` event and the web UI's flag is latched. With several it
+would have been luck, so the line sink captures the `Flow` it returns. With `|=`, not `=`: collected
+stderr is replayed through the sink *after* the kill.
+
+**A line may not name a folder outside the one the fetch was pointed at**, and the rule is one
+sentence covering every shape: every component must be an ordinary name. That turns down `..`, a
+leading separator, a drive letter and a UNC prefix without naming any of them. Refused before yt-dlp
+starts, for the reason the cookie-browser check is: a fault that is knowable up front should not
+surface as something that reads like the site said no. Refused rather than quietly clamped, because
+`--out ../songs` in a list copied between two machines writes into whatever happens to sit beside the
+destination on the second one.
+
+**Three words and not "whatever yt-dlp takes".** A line that could carry a format selector or a
+cookie browser is a much larger promise, and each one would be another axis a run has to be split
+along.
+
 ## The whole fetch is a library function that narrates
 
 `km_video_core::fetch::fetch(&Request, on_event)` runs the sequence — preflight, argv, spawn, read

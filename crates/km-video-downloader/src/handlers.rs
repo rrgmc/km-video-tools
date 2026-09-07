@@ -12,7 +12,7 @@ use axum::extract::{Multipart, State as AxumState};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 
-use km_video_core::{args, fetch};
+use km_video_core::{args, fetch, list};
 
 use crate::browse;
 use crate::server::State;
@@ -76,14 +76,14 @@ pub async fn start(AxumState(state): AxumState<State>, multipart: Multipart) -> 
     settings.cookies_from_browser = form.cookies_from_browser.clone();
     state.remember(settings.clone());
 
-    let urls = form.urls();
+    let entries = form.entries();
     // An empty list is not a refusal on its own: the folder may carry its own, and `fetch` falls
     // back to it and says so. What is a refusal is nothing anywhere, and that is `fetch`'s to say
     // — it knows the file name to name.
-    let from_file = if urls.is_empty() {
+    let from_file = if entries.is_empty() {
         None
     } else {
-        match write_batch(&out, &urls) {
+        match write_asked(&out, &entries) {
             Ok(path) => Some(path),
             Err(why) => return refused(&format!("Could not write the list of links: {why:#}")),
         }
@@ -201,10 +201,15 @@ fn plural(count: usize, one: &str, many: &str) -> String {
 /// links is an argv well past what Windows will accept, and this is the one place a page can hand
 /// over that many at once. It lands in the output folder under a name a person will recognise if an
 /// interrupted run ever leaves one behind.
-fn write_batch(out: &std::path::Path, urls: &[String]) -> anyhow::Result<PathBuf> {
+///
+/// **Written through [`list::write`]**, so a line that said which it was or where it went says so
+/// again in the file. The page parses the markers only to carry them: what acts on them is
+/// [`fetch::fetch`], reading this file back. One path in, rather than a second way to say the same
+/// thing that only the page would use and only the page would keep working.
+fn write_asked(out: &std::path::Path, entries: &[list::Entry]) -> anyhow::Result<PathBuf> {
     std::fs::create_dir_all(out)?;
-    let path = out.join("km-video-fetch-asked.txt");
-    std::fs::write(&path, urls.join("\n"))?;
+    let path = out.join(args::ASKED_NAME);
+    list::write(&path, entries)?;
     Ok(path)
 }
 
@@ -273,37 +278,18 @@ impl Form {
     /// All three at once is allowed and is not a mistake somebody should be told off for: pasting
     /// two links beside a picked file of forty means forty-two, and duplicates are dropped rather
     /// than fetched twice.
-    fn urls(&self) -> Vec<String> {
-        let mut all = urls_in(&self.typed);
-        all.extend(urls_in(&self.picked));
-        if let Some(list) = &self.own_list
-            && let Ok(text) = std::fs::read_to_string(list)
-        {
-            all.extend(urls_in(&text));
-        }
-        all.dedup();
-        all
+    ///
+    /// **`list::merge` rather than a `dedup` here**, and the difference is not cosmetic:
+    /// `Vec::dedup` drops only *consecutive* equals, so a link present in both the textarea and the
+    /// picked file used to survive it and be fetched twice — the sentence above was not true.
+    fn entries(&self) -> Vec<list::Entry> {
+        let own = self
+            .own_list
+            .as_ref()
+            .and_then(|list| std::fs::read_to_string(list).ok())
+            .unwrap_or_default();
+        list::merge(&[&self.typed, &self.picked, &own])
     }
-}
-
-/// The links in a block of text, one per line.
-///
-/// Blank lines and `#` comments are skipped, because a list somebody maintains by hand over months
-/// grows both — and yt-dlp's own `--batch-file` reads them the same way, so this is agreement rather
-/// than invention.
-#[must_use]
-pub fn urls_in(text: &str) -> Vec<String> {
-    let mut seen = Vec::new();
-    for line in text.lines() {
-        let line = line.trim();
-        if line.is_empty() || line.starts_with('#') {
-            continue;
-        }
-        if !seen.iter().any(|already| already == line) {
-            seen.push(line.to_owned());
-        }
-    }
-    seen
 }
 
 /// A urlencoded form body, parsed by hand.
@@ -370,19 +356,34 @@ fn decode(value: &str) -> String {
 mod tests {
     use super::*;
 
+    /// A marker typed into the box has to reach the file yt-dlp is pointed at, or the page can say
+    /// less than the command line can.
     #[test]
-    fn a_list_skips_blanks_and_comments_and_repeats() {
-        let urls = urls_in(
-            "https://example.invalid/a\n\n# yesterday's\nhttps://example.invalid/b\n  \
-             https://example.invalid/a  \n",
-        );
-        assert_eq!(
-            urls,
-            vec![
-                "https://example.invalid/a".to_owned(),
-                "https://example.invalid/b".to_owned()
-            ]
-        );
+    fn a_marked_line_survives_the_textarea_and_the_picked_file_alike() {
+        let form = Form {
+            typed: "--playlist https://example.invalid/list\n".to_owned(),
+            picked: "--out anime https://example.invalid/a\n".to_owned(),
+            ..Form::default()
+        };
+        let entries = form.entries();
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[0].expand, Some(true));
+        assert_eq!(entries[1].out.as_deref(), Some("anime"));
+    }
+
+    /// The regression. `Vec::dedup` drops only *consecutive* equals, so a link pasted into the box
+    /// and also present in the picked file was fetched twice — which the doc comment on `entries`
+    /// has always said it was not.
+    #[test]
+    fn a_link_in_two_places_is_fetched_once_and_keeps_its_first_marker() {
+        let form = Form {
+            typed: "--playlist https://example.invalid/a\nhttps://example.invalid/b\n".to_owned(),
+            picked: "https://example.invalid/a\n".to_owned(),
+            ..Form::default()
+        };
+        let entries = form.entries();
+        assert_eq!(entries.len(), 2, "asked for once");
+        assert_eq!(entries[0].expand, Some(true), "the first mention wins");
     }
 
     /// The form body carries a Windows path, and percent-decoding it wrongly is how a folder ends

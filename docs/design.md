@@ -23,6 +23,24 @@ without is `Title.mp4` rather than `NA - Title.mp4`.
 takes the whole list from a URL carrying `&list=`, so somebody who pasted a link from a playlist page
 gets two hundred songs they did not ask for. Here `--playlist` is a request.
 
+**And a line of a list may state it for itself**, along with where it goes:
+
+```text
+https://youtu.be/aaaaaaaaaaa
+--playlist https://www.youtube.com/playlist?list=PLxxxx
+--out anime https://youtu.be/bbbbbbbbbbb
+--playlist --out anime/openings https://www.youtube.com/playlist?list=PLzzzz
+```
+
+A line that says nothing takes the run's own answer, so a list with no markers in it means exactly
+what it has always meant. Nothing sniffs a URL's shape to decide: a link that looks precisely like a
+playlist has still not said it is one.
+
+Two consequences worth knowing before writing such a list. **`--limit` is per playlist, not a budget
+for the run** — it always was: five playlists at `--limit 10` is up to fifty videos. And it selects
+by *index*, before the archive filters, so a video already fetched by a line of its own still
+occupies a slot in the `1:N` of a playlist that contains it.
+
 ## Two things deliberately never passed
 
 Both because they change the file's *stream layout* rather than its content:

@@ -8,6 +8,7 @@
 //! none of the four has anything to say about how it was asked for:
 //!
 //! * [`args`] — which arguments yt-dlp gets, and why each one.
+//! * [`list`] — a list of links, and what a line of one may say about itself.
 //! * [`run`] — finding yt-dlp, running it, and reading back what it did.
 //! * [`probe`] — what a file that landed says about itself, read through `ffprobe`.
 //! * [`profile`] — the shape a karaoke package wants, and the re-encode that reaches it.
@@ -36,6 +37,7 @@
 pub mod args;
 pub mod check;
 pub mod fetch;
+pub mod list;
 pub mod probe;
 pub mod profile;
 pub mod run;

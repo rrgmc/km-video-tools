@@ -291,6 +291,22 @@ impl View {
 fn arrival(record: &km_video_core::run::Record, verdict: &fetch::Verdict) -> Arrival {
     use fetch::Verdict as V;
 
+    // **Settled by the verdict, before anything looks for a file**, because a dry run never writes
+    // one: `args::SIMULATE_TEMPLATE` leaves `filepath` out on purpose, there being nothing to put in
+    // it. Asking for the path first is what made every row of a dry run a red *no file was written*
+    // here, while the command line said *would fetch this (3:33)* about the same record — and it
+    // left the `NotFetched` arm below unreachable from this page.
+    if let V::NotFetched = verdict {
+        return Arrival {
+            name: record.describe(),
+            verdict: record
+                .length()
+                .map_or_else(String::new, |length| format!("would fetch this ({length})")),
+            tone: "ok",
+        };
+    }
+
+    // A run that meant to write a file and recorded none. That is a fault, and the row says so.
     let Some(path) = record.path() else {
         return Arrival {
             name: record.describe(),
@@ -308,12 +324,9 @@ fn arrival(record: &km_video_core::run::Record, verdict: &fetch::Verdict) -> Arr
         V::Unplayable { summary } => (format!("cannot be played as it is: {summary}"), "bad"),
         V::Normalized { summary } => (format!("re-encoded into profile ({summary})"), "ok"),
         V::Unreadable { why } => (format!("could not be probed: {why}"), "bad"),
-        V::NotFetched => (
-            record
-                .length()
-                .map_or_else(String::new, |length| format!("would fetch this ({length})")),
-            "ok",
-        ),
+        // Answered above, before a file was looked for. Spelled out rather than left to an
+        // `unreachable!`, which would be a panic in a page renderer to save four words.
+        V::NotFetched => (String::new(), "ok"),
     };
 
     Arrival {
@@ -403,6 +416,40 @@ mod tests {
         assert_eq!(results[0].name, "A Song");
         assert_eq!(results[0].verdict, "no file was written");
         assert_eq!(results[0].tone, "bad");
+    }
+
+    /// The regression. A dry run writes no file *by design* — `SIMULATE_TEMPLATE` leaves `filepath`
+    /// out because there is nothing to put in it — so a row settled by looking for the path made
+    /// every line of a dry run a red fault on this page, while the command line was calling the same
+    /// record something it would fetch. What the row says is the verdict's to decide.
+    #[test]
+    fn a_dry_run_says_what_it_would_fetch_rather_than_that_nothing_arrived() {
+        let job = Job::new("starting");
+        job.absorb(&fetch::Event::Arrived {
+            record: km_video_core::run::Record {
+                duration: Some(213.0),
+                ..a_record(None)
+            },
+            verdict: fetch::Verdict::NotFetched,
+        });
+        let results = job.results();
+        assert_eq!(results[0].name, "A Song");
+        assert_eq!(results[0].verdict, "would fetch this (3:33)");
+        assert_eq!(results[0].tone, "ok", "a dry run is not a failure");
+    }
+
+    /// A video whose length the extractor did not report is still a row, and still not a fault.
+    #[test]
+    fn a_dry_run_row_survives_a_video_of_unknown_length() {
+        let job = Job::new("starting");
+        job.absorb(&fetch::Event::Arrived {
+            record: a_record(None),
+            verdict: fetch::Verdict::NotFetched,
+        });
+        let results = job.results();
+        assert_eq!(results[0].name, "A Song");
+        assert_eq!(results[0].verdict, "");
+        assert_eq!(results[0].tone, "ok");
     }
 
     /// Four hundred videos is tens of thousands of lines, and all of them would be re-rendered into

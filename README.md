@@ -36,6 +36,25 @@ A folder remembers what has already been fetched into it (`.km-fetched.txt`), an
 list of what to fetch (`km-video-fetch.txt`), so re-running over a playlist picks up only what is
 new. The page reads that list too, and offers it as one click when it is there.
 
+A line of such a list may say what it is and where it goes, which is the only way to fetch a mix of
+single videos and whole playlists, or to sort what arrives into folders:
+
+```text
+# these follow --playlist, or its absence
+https://youtu.be/aaaaaaaaaaa
+
+--playlist    https://www.youtube.com/playlist?list=PLxxxx
+--no-playlist https://youtu.be/bbbbbbbbbbb?list=PLyyyy
+
+--out anime            https://youtu.be/ccccccccccc
+--playlist --out jpop  https://www.youtube.com/playlist?list=PLzzzz
+```
+
+`--out` names a folder **under** the one the fetch was pointed at — a list may not reach outside it —
+and each folder keeps its own `.km-fetched.txt`, because what is already in a folder is a fact about
+that folder. A list with none of these markers in it is an ordinary yt-dlp batch file and is handed
+over as one.
+
 ## The window
 
 It is a real application on Windows and macOS: its own window, its own icon, no console. Inside the

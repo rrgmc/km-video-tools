@@ -107,6 +107,37 @@ pub const RECORDS_NAME: &str = "km-video-fetch-records.jsonl";
 /// from. It says whose it is for `RECORDS_NAME`'s third reason.
 pub const BATCH_NAME: &str = "km-video-fetch.txt";
 
+/// What a front end writes the links it was handed into, **relative to the destination**.
+///
+/// A file rather than arguments, and not for tidiness: a playlist pasted in as three hundred links
+/// is an argv well past what Windows will accept.
+pub const ASKED_NAME: &str = "km-video-fetch-asked.txt";
+
+/// The two lists a marked run writes for itself, one per destination folder.
+///
+/// **A list that says what its lines are cannot be one yt-dlp run**, because `--yes-playlist` and
+/// `--no-playlist` are properties of an invocation; see [`crate::list`]. So the list is sorted into
+/// these and each is fetched on its own.
+///
+/// **One pair per destination folder rather than one pair for the run**, which is what makes the
+/// names safe however many folders a list names: two runs never share a destination, so two runs
+/// never share a file. It also puts a file left behind by an interrupted run beside the videos it
+/// was about.
+///
+/// `km-video-fetch-` in the name for [`RECORDS_NAME`]'s third reason, and no leading dot for
+/// [`BATCH_NAME`]'s: for the minute they exist they sit in somebody's folder of songs, and they
+/// should say whose they are and be visible while they do.
+///
+/// **Passed to `--batch-file` whole, not as a bare name — the opposite of [`RECORDS_NAME`].**
+/// `--batch-file` is an ordinary path argument, resolved against the working directory and neither
+/// trimmed nor sanitised, so it must carry its folder. `--print-to-file`'s goes through the
+/// output-template machinery and must not. Two arguments that look alike and want opposite
+/// treatment, which is why one test asserts both halves at once.
+pub const SINGLES_NAME: &str = "km-video-fetch-singles.txt";
+
+/// The other half of [`SINGLES_NAME`]: the lines that were said to be whole playlists.
+pub const PLAYLISTS_NAME: &str = "km-video-fetch-playlists.txt";
+
 /// The browsers yt-dlp can read cookies out of.
 ///
 /// **Written down here rather than left to yt-dlp to reject**, so a front end can offer a list and
@@ -656,6 +687,55 @@ mod tests {
             !RECORDS_NAME.starts_with('.'),
             "sanitisation strips a leading dot, and then the file is not where it was asked for"
         );
+    }
+
+    /// The counterpart of the regression above, asserted in one test so the asymmetry cannot be
+    /// half-remembered: `--batch-file` is an ordinary path argument like `--download-archive`, and
+    /// so must carry its folder, while `--print-to-file`'s goes through the output-template
+    /// machinery and must not. Getting these the wrong way round writes one of the two files
+    /// somewhere nothing looks for it.
+    #[test]
+    fn a_batch_file_keeps_its_folder_because_nothing_rewrites_that_argument() {
+        let mut plan = plan();
+        plan.targets.clear();
+        plan.from_file = Some(PathBuf::from("videos").join(SINGLES_NAME));
+        let args = strings(&plan);
+
+        let batch = value_of(&args, "--batch-file").expect("the list is in the argv");
+        assert!(
+            Path::new(&batch).components().count() > 1,
+            "a batch file is resolved against the working directory, not -P"
+        );
+        // The record file's name is the argument *after* the template, which is itself the value
+        // after `--print-to-file`.
+        let template = value_of(&args, "--print-to-file").expect("the template is in the argv");
+        let record = value_of(&args, &template).expect("and the name follows it");
+        assert_eq!(
+            Path::new(&record).components().count(),
+            1,
+            "...and the record file is the other way round, or --trim-filenames moves it"
+        );
+    }
+
+    /// Four names, four different files. The two a run writes for itself must never be mistaken for
+    /// the one a person maintains by hand, nor for each other.
+    #[test]
+    fn the_lists_a_run_writes_cannot_be_mistaken_for_the_one_a_person_wrote() {
+        let names = [BATCH_NAME, ASKED_NAME, SINGLES_NAME, PLAYLISTS_NAME];
+        for (at, name) in names.iter().enumerate() {
+            assert!(
+                !names[at + 1..].contains(name),
+                "{name} is used for two different things"
+            );
+            assert!(
+                !name.starts_with('.'),
+                "{name} is a file somebody may need to find"
+            );
+            assert!(
+                name.starts_with("km-video-fetch"),
+                "{name} says whose it is"
+            );
+        }
     }
 
     /// The counterpart: `--download-archive` is an ordinary path argument, neither trimmed nor
