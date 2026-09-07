@@ -217,29 +217,6 @@ The rule the split exists to keep: **a binary crate here is a command line and i
 `km-video-downloader` renders the same events into HTML. That is what makes the two programs one
 program with two faces rather than two programs that agree by accident.
 
-## Where this came from
-
-`km-video-fetch` was `tools/cmd/km-video-fetch` inside
-[karaokemachine](https://github.com/rrgmc/karaokemachine) and moved out because it is the one thing
-there that reaches the network for song material. That product downloads nothing, ever; the appliance
-may have no internet at all. Keeping the downloader in a repository of its own makes that a fact
-about the code rather than a paragraph in a document.
-
-Two consequences are written down where they happen rather than only here:
-
-- **`km-video-core/src/profile.rs` is a copy**, and karaokemachine's `km-pack` holds the
-  authoritative one — it is what packaging actually enforces. See
-  [`docs/decisions.md`](docs/decisions.md).
-- **`km-video-core/src/probe.rs` reads a file with `ffprobe`**, where karaokemachine reads the same
-  facts through `ffmpeg-next`. A second implementation, deliberately, so this stays a pure-Rust
-  build.
-
-## What it fetches, and from where, is your business
-
-This runs yt-dlp against whatever it is pointed at. Downloading from a site may be contrary to that
-site's terms, and the videos are somebody else's copyrighted work. Nothing here decides on its own
-what to fetch: every URL came from a person.
-
 ## Licence
 
 MIT OR Apache-2.0, at your option.
