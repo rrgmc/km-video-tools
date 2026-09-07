@@ -22,8 +22,7 @@ Rendering is deterministic, so re-running is not a diff.
 
 Because it is the same drawing: **angular bands of colour filling the tile, a near-black plate over
 them, and `KM` on the plate** — the K in near-white, the M in the hue that names the program. These
-tools serve [the karaoke app](https://github.com/rrgmc/karaokemachine) and are run beside it, so the
-mark belongs to that family.
+tools serve the karaoke app and are run beside it, so the mark belongs to that family.
 
 **The lead is a vermilion, and it is the only thing that had to be its own.** That repository's four
 sit at 45° (the machine's amber), 148° (the remote's green), 196° (the package builder's blue) and

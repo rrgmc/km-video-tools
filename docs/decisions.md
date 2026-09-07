@@ -5,9 +5,8 @@ repository that disagrees with it; where the two conflict, the other one is out 
 
 ## The repository exists so that the karaoke app has no downloader in it
 
-`km-video-fetch` was `tools/cmd/km-video-fetch` inside
-[the karaoke app](https://github.com/rrgmc/karaokemachine) and is the one thing there that reached
-the network for song material.
+`km-video-fetch` was `tools/cmd/km-video-fetch` inside the karaoke app and is the one thing there
+that reached the network for song material.
 
 **The line is between what a person asks for and what a machine decides to do on its own**, and this
 tool has always been on the asked-for side: it runs yt-dlp against what somebody points it at and
