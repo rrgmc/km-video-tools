@@ -8,10 +8,34 @@
 # cannot is a task worth having; a task that renames `cargo test` is one more name to learn. The
 # three that earn their place are `check` (an order, not a command), `dist` (a shell script) and
 # `clean` (which knows that `dist/` is output too).
+#
+# **Run it from whatever shell you like -- cmd, PowerShell, Windows Terminal, Git Bash.** `dist` calls
+# a bash script, and typing it needs no bash: Task runs every command through its own embedded POSIX
+# shell rather than the host's, and the `SH` variable below finds Git Bash from git's own location. So
+# nothing has to be on PATH but `git` -- which is the whole point on Windows, where Git's `bin/` is
+# normally *not* on PATH and a bare `bash` is WSL's.
+#
+# The rule any new task has to respect, and it is the same one karaokemachine's Taskfile writes down:
+# a bash script is invoked through `{{.SH}}` and never a bare `bash`.
 
 version: '3'
 
 silent: true
+
+vars:
+  # The staging script is bash, and **on Windows a bare `bash` is WSL's** -- a different git looking at
+  # a different filesystem, with no MSVC cargo behind it. Naming Git Bash explicitly is the fix, and it
+  # is the same one karaokemachine's Taskfile makes for the same reason.
+  #
+  # Without this, `task dist` does not reach a wrong bash -- it reaches none at all: Task's embedded
+  # shell honours no `#!` line, so it hands `cmd.sh` to Windows as an executable and Windows answers
+  # `%1 is not a valid Win32 application`.
+  #
+  # Derived from git's own location rather than hardcoded, so a non-default install still works:
+  # `git --exec-path` gives `<root>/mingw64/libexec/git-core`, and the root is what is wanted.
+  # Override with `task dist SH=/path/to/bash` if that ever fails to find one.
+  SH:
+    sh: '{{if eq OS "windows"}}p=$(git --exec-path); echo "${p%/mingw*}/bin/bash.exe"{{else}}echo bash{{end}}'
 
 tasks:
   default:
@@ -69,12 +93,12 @@ tasks:
   dist:
     desc: Stage every program into dist/<app>/<platform>/<app>-<version>-<triple>/
     cmds:
-      - tools/dist/cmd.sh {{.CLI_ARGS}}
+      - '"{{.SH}}" tools/dist/cmd.sh {{.CLI_ARGS}}'
 
   dist:zip:
     desc: The same, plus a versioned .zip of each folder
     cmds:
-      - tools/dist/cmd.sh --zip {{.CLI_ARGS}}
+      - '"{{.SH}}" tools/dist/cmd.sh --zip {{.CLI_ARGS}}'
 
   clean:
     desc: Remove the staged output in dist/, leaving target/ alone
