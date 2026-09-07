@@ -81,12 +81,14 @@ cargo build --workspace
 cargo run -p km-video-fetch -- --help
 ```
 
-With [Task](https://taskfile.dev) installed, `task --list` prints what is routine. The three worth
+With [Task](https://taskfile.dev) installed, `task --list` prints what is routine. The ones worth
 knowing:
 
 ```sh
 task check      # fmt, clippy, tests — in the order a failure is cheapest to read
 task dist       # stage a folder somebody can be handed, into dist/
+task dist:bin   # ...or one folder with every program in it
+task dist:setup # ...or a setup program, for the people who would rather not unpack one
 task run -- '<url>' --out ./songs
 task ui         # run the window
 ```
@@ -94,6 +96,37 @@ task ui         # run the window
 `task dist` writes `dist/<app>/<platform>/<app>-<version>-<triple>/` holding the executable, both
 licence texts and a README naming the version — plus the console twin on Windows, and a `.app`
 bundle on macOS. `dist/` is output and is never committed.
+
+`task dist:bin` answers the other question people ask of a build — *give me one folder with all of
+it in it*. It writes `dist/bin/<platform>/` and `dist/bin-console/<platform>/`: the first holds the
+form you double-click where a program has one, the second the form that prints, and anything with
+only one form is in both. `ZIP=1` also writes a versioned archive of each — the folders carry no
+version, because a folder is where you keep the current build and the number belongs on the thing
+you hand over. It gathers rather than builds, so nothing about what a staged folder holds is written
+down twice.
+
+`task dist:setup` builds the third kind of carrier: one installer holding both programs, with a
+checkbox for each. It is deliberately not part of `task dist`, which would otherwise stage
+everything twice.
+
+On **Windows** it writes `dist/setup/windows/km-video-tools-setup-<version>-x86_64.exe`, an
+[Inno Setup](https://jrsoftware.org/isinfo.php) installer that puts both programs in
+`%LOCALAPPDATA%\Programs` **for your account only** — so it raises no UAC prompt — offers to add
+itself to your `PATH`, and takes that entry back out when uninstalled. It needs Inno Setup 6
+(`winget install JRSoftware.InnoSetup`), which it looks for in the per-user location `winget` uses
+before the Program Files ones.
+
+On **macOS** it writes `dist/setup/macos/km-video-tools-setup-<version>-<arch>.pkg`, an Apple
+installer package: the application goes to `/Applications` and `km-video-fetch` to
+`/usr/local/km-video-tools`, with a symlink in `/usr/local/bin`, which is already on your `PATH` —
+so there is no “add me to your `PATH`” tick and nothing edits a `.zshrc`. It needs nothing that is
+not already in the base system, and asks for your administrator password once.
+
+Both **round-trip themselves on every build** — install into a scratch location, run each program,
+uninstall, and assert nothing was left behind. Both are **unsigned**, so a recipient meets
+SmartScreen or Gatekeeper on a first run; the fix for that is a purchased certificate rather than a
+build step. Neither installer touches your downloaded videos or your settings when removed, and each
+says so on its way out.
 
 ## Layout
 
@@ -106,6 +139,8 @@ crates/
                         every one of them compiled into a single file
 icon/                   generated: `cargo run -p km-video-downloader --example icon`
 tools/dist/             staging scripts; they write dist/, they never build into it
+tools/platform/         the two setup programs: an Inno Setup .iss and a .pkg Distribution,
+                        each with the script that drives it
 docs/                   why things are the way they are
 ```
 

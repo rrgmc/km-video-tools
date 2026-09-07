@@ -311,9 +311,6 @@ for app in "${APPS[@]}"; do
   echo "dist: staged $folder"
 
   if [ "$ZIP" = 1 ]; then
-    archive="$(dist_dir "$app" "$PLATFORM")/$app-$version-$TRIPLE.zip"
-    rm -f "$archive"
-    ( cd "$(dirname "$folder")" && zip -qr "$(basename "$archive")" "$(basename "$folder")" )
-    echo "dist: wrote $archive"
+    dist_zip "$(dirname "$folder")" "$(basename "$folder")"
   fi
 done

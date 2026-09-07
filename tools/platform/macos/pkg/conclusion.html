@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<!--
+  The doctype must stay on the first line; see the note in welcome.html. Installer sniffs the data
+  rather than trusting the Distribution's mime-type, and a file beginning with a comment is shown as
+  raw markup.
+-->
+<html>
+<head><meta charset="utf-8"></head>
+<body style="font-family: -apple-system, sans-serif; font-size: 13px;">
+
+<p><b>Installed.</b></p>
+
+<ul>
+  <li><b>KM Video Downloader</b> is in <code>/Applications</code>. Open it from Launchpad or the
+      Applications folder.</li>
+  <li><b>km-video-fetch</b> can be typed in any new Terminal window. One that was already open will
+      not have found it yet.</li>
+</ul>
+
+<p><b>Before the first download, install <code>yt-dlp</code></b> if you have not already —
+<code>brew install yt-dlp</code>, or from <code>https://github.com/yt-dlp/yt-dlp</code>. Both
+programs print the version they found and say so when it is too old, which is the failure that
+otherwise looks like a broken network.</p>
+
+<p><b>Where things are, if you want them gone later:</b></p>
+
+<ul>
+  <li>The application: <code>/Applications/KM Video Downloader.app</code> — drag it to the Trash.</li>
+  <li>The command line: <code>/usr/local/km-video-tools</code> and the symlink
+      <code>/usr/local/bin/km-video-fetch</code> — deleting those needs the same administrator
+      password the install asked for.</li>
+  <li>Your settings: <code>~/Library/Application Support/km-video-downloader</code>.</li>
+</ul>
+
+<p><b>The videos you download are never touched by any of that</b>, wherever you chose to put
+them.</p>
+
+</body>
+</html>
