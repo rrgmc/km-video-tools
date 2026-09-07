@@ -48,7 +48,7 @@
      there is no terminal here — so they are kept, newest last, and folded away until wanted. #}
   {% if !it.log.is_empty() %}
   <details class="log" {% if it.log_matters() %}open{% endif %}>
-    <summary>What yt-dlp said</summary>
+    <summary>yt-dlp output</summary>
     <pre>{% for line in it.log %}{{ line }}
 {% endfor %}</pre>
   </details>

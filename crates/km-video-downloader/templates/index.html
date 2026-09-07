@@ -97,38 +97,34 @@
   <div class="options">
     <label class="check">
       <input type="checkbox" name="playlist" {% if playlist %}checked{% endif %}>
-      <span>Take the whole playlist
-        <small>Off, a link from a playlist page fetches only that one video. Either way this is
-          the answer for a line that does not say for itself.</small></span>
+      <span>Download while playlist
+        <small>Off by default.</small></span>
     </label>
 
     <label class="check">
       <input type="checkbox" name="normalize" {% if normalize %}checked{% endif %}>
-      <span>Re-encode anything outside the profile
-        <small>Fixes a file the machine could not play. Costs minutes to hours per song.</small>
-      </span>
+      <span>Re-encode anything outside the profile</span>
     </label>
 
     <label class="check">
       <input type="checkbox" name="subs" {% if subs %}checked{% endif %}>
-      <span>Mux subtitles in
-        <small>The machine does not read them; this only changes the file.</small></span>
+      <span>Mux subtitles
+        <small>The app don't load external subtitles.</small></span>
     </label>
 
     <label class="check">
       <input type="checkbox" name="no_archive" {% if no_archive %}checked{% endif %}>
-      <span>Fetch things already in the archive again
-        <small>Not remembered — it is a thing you do once.</small></span>
+      <span>Overwrite if existing</span>
     </label>
 
     <label class="check">
       <input type="checkbox" name="dry_run">
-      <span>Say what would be fetched, and fetch nothing
-        <small>Not remembered, for the same reason.</small></span>
+      <span>Dry-run
+        <small>Execute but don't download anything.</small></span>
     </label>
 
     <label class="field small">
-      <span>At most this many from a playlist</span>
+      <span>Video amount limit</span>
       <input type="number" name="limit" min="1" value="{{ limit }}" placeholder="no limit">
     </label>
 
@@ -145,7 +141,7 @@
         {% for browser in browsers %}<option value="{{ browser }}"></option>{% endfor %}
       </datalist>
       <small>
-        For material that needs an account. Close that browser first — Chrome and Edge keep their
+        Close the browser first — Chrome and Edge keep their
         cookie database locked while they are running. Add a profile after a colon
         (<code>firefox:work</code>) where you have more than one.
       </small>
@@ -158,11 +154,5 @@
 {# ---- 4. What is happening, and what arrived --------------------------------------------------- #}
 {% include "_job.html" %}
 {% include "_results.html" %}
-
-<p class="footnote">
-  What this fetches, and from where, is your business. It runs
-  <a href="https://github.com/yt-dlp/yt-dlp">yt-dlp</a> against whatever you point it at; downloading
-  from a site may be contrary to that site's terms, and the videos are somebody else's work.
-</p>
 
 {% endblock %}
