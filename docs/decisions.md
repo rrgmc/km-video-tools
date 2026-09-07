@@ -149,6 +149,78 @@ destination on the second one.
 cookie browser is a much larger promise, and each one would be another axis a run has to be split
 along.
 
+## A list has an extension of its own, and something opens it
+
+`km-video-fetch.txt` became **`km-video-fetch.kmvf`**, and the extension is registered with
+`km-video-downloader` by both setup programs.
+
+**`.txt` was the one thing that could not be said about it.** A list is a document with a grammar —
+`--playlist`, `--no-playlist` and `--out folder` in front of a URL, all of it in [`list`] — and an
+operating system has no way to learn that from a name it shares with every other text file. So the
+file could not be double-clicked, carried no icon, and sat in a file manager as one more `.txt`. The
+extension is not decoration on the rename; it *is* the rename.
+
+**Two rules, and they are easy to conflate.** The list a folder carries for itself is matched by
+exact filename, in the destination folder, only where nothing else was named — `folders_own_list` is
+unchanged but for the constant it joins. The association is matched by extension, on any such file
+anywhere, and means only that somebody opened one. Neither rule reaches the other: opening
+`anything.kmvf` does not make it a folder's own list, and a folder's own list is found whether or not
+anything on the machine associates the extension.
+
+**Renamed with no fallback.** A folder carrying the old name stops being found until it is renamed by
+hand. The alternative was two names to document, a precedence between them, and a sentence in every
+explanation of the feature for the life of the program — for a tool built here and handed to somebody
+as a folder or an installer, that is a worse trade than one rename.
+
+**And nothing this program writes for itself carries the extension.** `ASKED_NAME`, `SINGLES_NAME`
+and `PLAYLISTS_NAME` keep `.txt`, and a test pins it. Those sit in somebody's folder of songs for the
+length of a run, and an interrupted run leaves them there for good; a program that wrote a
+double-clickable file into a folder of songs would be offering to reopen its own workings.
+
+## Opening a list fills the page in, and a second copy hands its own over
+
+`km-video-downloader` takes one positional argument, which is all a shell association passes. It does
+two things and no third: the output folder moves to that list's own folder, and the list is offered
+on the page, ticked. **Nothing is fetched** — opening a document is somebody saying *look at this*,
+not *do it*.
+
+**The failure this had to remove is the second double-click.** An association starts a new process
+every time, and a second one cannot bind the port — on the GUI-subsystem executable, whose standard
+error goes nowhere at all, it exited without a word and left no trace anywhere somebody would think
+to look. That is the same class of failure as `println!` being a crash, below, and it would have been
+found the same way: never from a shell, only from Explorer.
+
+**The port is the whole mechanism.** No named pipe, no lock file, no single-instance mutex — the
+copy that is already running is already an HTTP server on a known port, so the copy that cannot start
+posts its path to it and stops. The instance with the window is the instance that answers.
+
+**`POST /opened` grants nothing new**, which is the question worth asking of any new endpoint here.
+Anything that can reach that port can already post `/out` and `/fetch` and make this program write
+files wherever it likes; that is what *it is on loopback, it already writes files wherever it is
+pointed, and it runs as whoever started it* has always meant. One more endpoint on that surface is
+not one more capability.
+
+**The request is written by hand over a `TcpStream`.** There is no HTTP client in this tree and this
+was not the reason to add one: `reqwest` would bring a TLS stack and a second async runtime into a
+program whose whole build story is a handful of crates and no C compiler, to talk to a socket on this
+same machine.
+
+**Every answer from that endpoint carries a marker, refusals included.** Identity and outcome are two
+facts. With the marker only on success, *this program said no* and *that port belongs to something
+else* were indistinguishable from the far end, and a path that was not there got reported as a
+stranger on the port.
+
+**macOS reaches all of this by a different road and ends in the same place.** That platform delivers
+a document to an application as an Apple Event rather than as an argument, so the positional is empty
+there even on the launch that opened the file; `tao`'s `Event::Opened` is the arm that answers, and a
+second file opened while the application is running is delivered to it by LaunchServices rather than
+by a handoff. Windows never sends that event and macOS never sends the argument, so the two are not
+alternatives to be chosen between.
+
+**The opened list is drawn only where it is not already the folder's own** — which is the usual case,
+since opening one moves the folder to where it sits. Two rows would be this program offering the same
+file twice, under two names, with two counts to reconcile.
+
 ## The whole fetch is a library function that narrates
 
 `km_video_core::fetch::fetch(&Request, on_event)` runs the sequence — preflight, argv, spawn, read
