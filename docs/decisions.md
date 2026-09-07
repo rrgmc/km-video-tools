@@ -252,6 +252,25 @@ build directory moves, and a hard-coded path produces the worst failure this kin
 cargo prints `Finished` and the next line says the executable was not produced. `dist_target_dir`
 asks cargo.
 
+## The staging scripts carry the executable bit, and `common.sh` does not
+
+`tools/dist/cmd.sh`, `tools/dist/bin.sh` and both `tools/platform/*/installer.sh` are mode `100755`
+in the index. `tools/dist/common.sh` is `100644`, because it is sourced and never run — the mode is
+the only place that distinction is written down where a reader will meet it before the header
+comment.
+
+**This is load-bearing, and it fails on exactly one platform.** The Taskfile invokes every one of
+these through `{{.SH}}`, which is a bash that ignores the mode; Git Bash on Windows reports every
+file as executable regardless. So neither the tasks nor a Windows checkout can tell the bit is
+missing. But the scripts also invoke *each other* directly — `installer.sh` runs `cmd.sh`, `bin.sh`
+runs `cmd.sh`, the Windows driver runs `bin.sh` — and on macOS and Linux that is
+
+    tools/platform/macos/installer.sh: line 91: tools/dist/cmd.sh: Permission denied
+
+after the tool check has already passed and printed `== macos installer`. Each script's own usage
+header documents it as directly runnable too, which without the bit is untrue everywhere but
+Windows.
+
 ## Nothing committed describes the machine it was written on
 
 Inherited from karaokemachine and worth keeping: **no tracked file names a local drive or folder, a
