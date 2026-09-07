@@ -39,13 +39,16 @@ pub async fn set_out(AxumState(state): AxumState<State>, body: String) -> Respon
     crate::views::render_page(&state)
 }
 
-/// `POST /opened` — a list somebody opened, handed over by a copy of this program that could not
-/// start.
+/// `POST /opened` — this program was opened again, handed over by the copy that could not start.
 ///
 /// **The port is the handoff.** A second copy launched by a double-click finds this one already
-/// listening and, rather than exiting without a word, posts the path here and stops. This is the
-/// instance with the window, so this is the instance that answers — it takes the list, moves the
-/// folder to that list's folder, and wakes its window so the page is redrawn showing it.
+/// listening and, rather than exiting without a word, posts here and stops. This is the instance
+/// with the window, so this is the instance that answers.
+///
+/// **A list is the optional half of that message.** With one, this takes it, moves the folder to
+/// that list's folder, and wakes the window so the page is redrawn showing it. Without one — the
+/// plain second launch, and the commoner of the two — there is nothing to take and the waking *is*
+/// the answer.
 ///
 /// **It grants nothing new.** Anything that can reach this port can already post `/out` and
 /// `/fetch` and make this program write files wherever it likes; that is what being an
@@ -57,8 +60,17 @@ pub async fn set_out(AxumState(state): AxumState<State>, body: String) -> Respon
 /// program said no* from *that port is somebody else's*.
 pub async fn opened(AxumState(state): AxumState<State>, body: String) -> Response {
     let fields = Fields::parse(&body);
-    let Some(path) = fields.one("path") else {
-        return refused(&format!("{OPENED_MARK}: no list was given"));
+
+    // **No path is a message and not a malformed one.** A copy that could not have the port hands
+    // over whatever it was opened with, and most of the time that is nothing: somebody opened this
+    // program while it was already open. The answer to that is the window, which is here — so come
+    // forward and say so, exactly as a list does once it has been taken.
+    //
+    // An empty value counts as none, matching the filter `lib::opened_list` puts on the other side.
+    let path = fields.one("path").filter(|path| !path.trim().is_empty());
+    let Some(path) = path else {
+        state.wake();
+        return OPENED_MARK.into_response();
     };
 
     let list = browse::tidy(&path);

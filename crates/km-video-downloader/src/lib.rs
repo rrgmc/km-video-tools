@@ -22,6 +22,7 @@
 //! password on it. `--lan` makes it reachable from the rest of the house and says so out loud when
 //! it does.
 
+pub mod alert;
 pub mod browse;
 #[cfg(feature = "desktop")]
 pub mod desktop;
@@ -232,17 +233,30 @@ pub fn run(shell: Shell) -> Result<()> {
     // refusal and drawing its own error page.
     let bound = match runtime.block_on(server::bind(cli.bind())) {
         Ok(bound) => bound,
-        // **The port being taken is the ordinary way a second double-click arrives**, now that a
-        // file association exists: there is one of these running already, and it is the one with
-        // the window. Hand the list over and stop. Anything else, and any failure to hand over, is
-        // the error it always was.
+        // **The port being taken is the ordinary way a second double-click arrives**: there is one
+        // of these running already, and it is the one with the window. Hand over and stop.
+        // Anything else, and any failure to hand over, is the error it always was.
+        //
+        // **Whether a list came with it does not enter into this.** It used to, and that was the
+        // bug: the branch answered the second double-click of a list and left the second
+        // double-click of the program to die without a word, which is the commoner of the two and
+        // the whole failure `handoff` was written for. It also made the branch unreachable on
+        // macOS, where a document arrives as an Apple Event and the positional is always empty.
         Err(error) => {
-            if let Some(list) = opened_list(&cli)
-                && address_is_taken(&error)
-            {
-                handoff::hand_over(cli.port, &list).with_context(|| {
-                    format!("handing {} to the copy already running", list.display())
+            if address_is_taken(&error) {
+                let list = opened_list(&cli);
+                handoff::hand_over(cli.port, list.as_deref()).with_context(|| match &list {
+                    Some(list) => format!("handing {} to the copy already running", list.display()),
+                    None => "asking the copy already running to come forward".to_owned(),
                 })?;
+                // **Said rather than silent**, for the console build, where somebody typed this and
+                // is owed a reason the second one exited without a window. In the windowed build
+                // there is nowhere for it to go and `say` drops it, which is that function's
+                // whole job.
+                say(match &list {
+                    Some(_) => "Already running. The list went to the window that is already open.",
+                    None => "Already running. That window has been brought forward.",
+                });
                 return Ok(());
             }
             return Err(error);

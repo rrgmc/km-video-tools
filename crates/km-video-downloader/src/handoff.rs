@@ -2,11 +2,22 @@
 //!
 //! # The failure this exists to remove
 //!
-//! A file association means a double-click starts a *new* process. If one is already running, the
-//! new one finds the port taken and cannot serve — and on Windows the executable that gets
-//! double-clicked is the GUI-subsystem one, whose standard error goes nowhere at all. So without
-//! this module the second double-click of somebody's afternoon does nothing, says nothing, and
-//! leaves no trace anywhere they would think to look.
+//! A double-click starts a *new* process. If one is already running, the new one finds the port
+//! taken and cannot serve — and on Windows the executable that gets double-clicked is the
+//! GUI-subsystem one, whose standard error goes nowhere at all. So without this module the second
+//! double-click of somebody's afternoon does nothing, says nothing, and leaves no trace anywhere
+//! they would think to look.
+//!
+//! **A list is not what makes that happen, which is why one is optional here.** The first version of
+//! this module handed over only when a file association had passed a path, and so answered the
+//! second double-click of a *list* while leaving the second double-click of the *program* exactly
+//! where it had been — the commoner of the two, and silent on both platforms. macOS made the gap
+//! plain rather than causing it: it delivers a document as an Apple Event, so the positional
+//! argument is empty there even on the launch that opened a file, and the whole branch was
+//! unreachable on that platform.
+//!
+//! So the rule is now the plain one. **A copy that cannot have the port hands over whatever it was
+//! opened with, including nothing at all**, and the copy with the window comes forward.
 //!
 //! # The port is the handoff
 //!
@@ -47,14 +58,21 @@ const TIMEOUT: Duration = Duration::from_secs(5);
 /// this looks for is one short line, so nothing beyond this is worth reading.
 const REPLY_LIMIT: usize = 8 * 1024;
 
-/// Posts a list to the copy already listening, and says whether it took it.
+/// Tells the copy already listening that this one was opened, and says whether it answered.
+///
+/// **The list is optional and its absence is not a lesser case.** `None` is the plain second launch
+/// — somebody opening the program while it is already open — and it means *come forward*. `Some` is
+/// that same message carrying a document to show once it does.
 ///
 /// **Loopback rather than whatever was asked for.** The bind that failed may have been `0.0.0.0`,
 /// which is a way of listening and not an address to connect to — and a handoff is by definition to
 /// a program on this machine.
-pub fn hand_over(port: u16, list: &Path) -> Result<()> {
+pub fn hand_over(port: u16, list: Option<&Path>) -> Result<()> {
     let addr = SocketAddr::from((Ipv4Addr::LOCALHOST, port));
-    let body = format!("path={}", encode(&list.display().to_string()));
+    let body = match list {
+        Some(list) => format!("path={}", encode(&list.display().to_string())),
+        None => String::new(),
+    };
 
     let mut stream = TcpStream::connect_timeout(&addr, TIMEOUT)
         .with_context(|| format!("connecting to {addr}"))?;
@@ -75,8 +93,8 @@ pub fn hand_over(port: u16, list: &Path) -> Result<()> {
     );
     stream
         .write_all(request.as_bytes())
-        .context("sending the list")?;
-    stream.flush().context("sending the list")?;
+        .context("sending it over")?;
+    stream.flush().context("sending it over")?;
 
     let mut answer = String::new();
     stream

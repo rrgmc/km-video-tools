@@ -184,7 +184,7 @@ two things and no third: the output folder moves to that list's own folder, and 
 on the page, ticked. **Nothing is fetched** — opening a document is somebody saying *look at this*,
 not *do it*.
 
-**The failure this had to remove is the second double-click.** An association starts a new process
+**The failure this had to remove is the second double-click.** A double-click starts a new process
 every time, and a second one cannot bind the port — on the GUI-subsystem executable, whose standard
 error goes nowhere at all, it exited without a word and left no trace anywhere somebody would think
 to look. That is the same class of failure as `println!` being a crash, below, and it would have been
@@ -192,7 +192,25 @@ found the same way: never from a shell, only from Explorer.
 
 **The port is the whole mechanism.** No named pipe, no lock file, no single-instance mutex — the
 copy that is already running is already an HTTP server on a known port, so the copy that cannot start
-posts its path to it and stops. The instance with the window is the instance that answers.
+posts to it and stops. The instance with the window is the instance that answers.
+
+**A list is the optional half of that message, and it took a correction to get there.** The first
+version handed over only where a file association had passed a path, so it answered the second
+double-click of a *list* and left the second double-click of the *program* — somebody opening this
+while it is already open, which is the commoner of the two — dying exactly as described above. The
+condition read as a guard and was really a narrowing.
+
+macOS is what made that visible rather than what caused it: a document arrives there as an Apple
+Event, so the positional is always empty and the whole branch was unreachable on that platform. The
+rule is now the plain one — **a copy that cannot have the port hands over whatever it was opened
+with, including nothing at all** — and `POST /opened` reads a body with no path as *come forward*
+rather than as a malformed request. With nothing to take, the waking is the entire answer, which is
+what the test for it asserts; a 200 that woke nobody would be this program agreeing it had been
+opened and then staying behind whatever is in front of it.
+
+**And it says so where anybody can hear it.** A successful handoff goes through `say`, so the console
+build tells somebody who typed the command twice why the second one exited without a window, and the
+windowed build drops the line for want of anywhere to put it. That is that function's whole job.
 
 **`POST /opened` grants nothing new**, which is the question worth asking of any new endpoint here.
 Anything that can reach that port can already post `/out` and `/fetch` and make this program write
@@ -217,9 +235,108 @@ second file opened while the application is running is delivered to it by Launch
 by a handoff. Windows never sends that event and macOS never sends the argument, so the two are not
 alternatives to be chosen between.
 
+Both roads were walked on a Mac before this was believed: a `.kmvf` opened with nothing running, and
+a second opened with the window up. The second reuses the running application and never starts a
+process to hand anything over, which is the platform doing by itself what the handoff does on
+Windows.
+
+**One case on macOS is improved rather than solved, and it is written down here rather than left to
+be discovered.** Where the copy holding the port is one LaunchServices does not know about — the bare
+executable, or a `cargo run`, rather than the bundle — a double-clicked list starts the bundle as a
+second process, and *that* process is the one the Apple Event is addressed to. It exits at the failed
+bind, before an event loop exists to receive it, so it hands over with no path: the window comes
+forward and the list is not shown. Better than the silent death it used to be, and short of right.
+
+Closing it means running an event loop in a process whose whole job is to exit — construct an
+`NSApp`, wait a bounded moment for `Event::Opened`, hand over whatever arrived — for a case that
+needs a copy running outside LaunchServices' knowledge, which is a thing developers have and users do
+not. Not paid for yet; the shape of the fix is recorded so the decision is a decision.
+
 **The opened list is drawn only where it is not already the folder's own** — which is the usual case,
 since opening one moves the folder to where it sits. Two rows would be this program offering the same
 file twice, under two names, with two counts to reconcile.
+
+## A startup failure is put on the screen where there is no console to print it into
+
+`main` returns a `Result`, and an `Err` out of it goes to standard error — the right arrangement
+everywhere except the one place this program is actually started from. A GUI-subsystem executable has
+a null standard error, and an application bundle launched by LaunchServices has one nobody will read.
+So the program vanished on startup and left nothing behind, which is the same silence `say` exists
+for and the same one the handoff removed for a taken port.
+
+**The handoff covers the common cause and this covers the rest**: a port held by a program that is
+*not* this one, a directory that cannot be made, a runtime that will not start. Rare, and each was
+until now indistinguishable from the program not existing.
+
+**The check is on the terminal, not on the build.** `Shell::Console`, the `desktop` feature and
+`windows_subsystem` are all proxies for *can anybody read what was printed*, and each is wrong
+somewhere — the windowed build run from a terminal has a console, and a console build launched from a
+file manager has none. `stderr().is_terminal()` asks the real question, so the dialog appears exactly
+where the message would otherwise have gone nowhere and never as a second copy of something already
+on screen.
+
+**macOS only, and the asymmetry is deliberate.** `osascript` is in the base system and this program
+already shells out to `open` for a browser — one more child, no dependency, the shape `opener.rs` is
+already in. Windows would want `MessageBoxW` and therefore `windows-sys`, the first such crate in a
+tree whose whole build story is a handful of crates and no C compiler; and it already has the answer
+this would duplicate, because `km-video-downloader-console.exe` exists precisely to be the build that
+can talk.
+
+**The whole chain is shown, not the outermost sentence.** The outer ones here are written for a
+person and the inner one is what happened: *asking the copy already running to come forward* above
+*something else is listening on 127.0.0.1:8181* is the pair that identifies the fault. Capped,
+because an error is not a log and a dialog is not something anybody can scroll. Escaped, and that has
+a test on it — an unbalanced quote does not mangle the dialog, it makes the script unparseable, so
+the report of last resort becomes the thing that fails to appear.
+
+## Each setup program proves its own half of the association
+
+Neither platform fails a build that associates nothing, and the two fail silently in the same way for
+different reasons: Inno reports nothing about a `[Registry]` entry a mistyped condition skipped, and
+`documents()` writes the macOS keys through a heredoc nested inside another heredoc, where a slip
+yields a package that installs cleanly and an application LaunchServices files under nothing at all.
+In both cases the first person to find out is somebody double-clicking a list.
+
+So the Windows driver reads its keys back with `reg.exe` and the macOS driver reads the document types
+out of `Info.plist` with `plutil`. **Out of the Payload, not out of the staging directory**, which is
+the whole point of reading anything back: what is proved has to be what somebody receives, and a
+correct staged bundle beside a wrong archive is exactly the failure the round trip is for.
+
+Four things are asserted, and each is one that can be wrong on its own: the plist parses at all; the
+type the bundle *declares* and the type its document entry *opens* are the same string, a mismatch
+being the macOS shape of an extension registered to a ProgId with no command behind it; there is
+exactly one filename extension; and `LSHandlerRank` is `Owner` beside a `CFBundleIdentifier` for
+LaunchServices to file the declaration under. **The extension is read rather than repeated** — one
+place decides it for this platform, and a copy typed into the check would agree with that place right
+up until the day it did not. The Windows driver reads its own out of the `.iss` for the same reason.
+
+**And the assertions were watched to fail.** Each was tried against a deliberately broken
+`documents()` — a mismatched identifier, a dropped tag specification, an unbalanced tag — because a
+check that has never been seen to refuse anything is not known to check anything.
+
+## The bundle states the macOS floor, and two files agree about it
+
+`11.0` — what the wry/tao stack needs — used to live only in `distribution.xml`, which binds a `.pkg`
+install and nothing else. But that is one of two ways this is handed over; the other is the staged
+folder, and a bundle without `LSMinimumSystemVersion` dropped on an older Mac fails in the dynamic
+loader before `main`, which is the same failure with none of the explanation.
+
+So the bundle states it too, out of `common.sh`'s `dist_min_macos`. Neither copy can be derived from
+the other — one is an XML attribute `productbuild` reads, the other a plist key LaunchServices reads —
+so what is left is what `rust-toolchain.toml` and `Cargo.toml` already do here: state it twice and
+refuse a build where the two disagree.
+
+## The macOS installer's conclusion pane is where a GUI-only install reads
+
+`dist_installed_readme macos` is written into the **fetch** component's payload, and that is correct
+— it lands in `/usr/local/km-video-tools` beside the program it describes. The consequence is that
+somebody who unticks `km-video-fetch` installs no README anywhere and never reads a word of it.
+
+**Not fixed by putting one beside the application.** A loose `README.txt` in `/Applications` is
+against the platform, and inside the bundle it is a file nobody opens. The Installer's own conclusion
+pane is what a GUI-only install actually reads, so that is where the association is explained — and
+the welcome pane says it is coming, since Windows offers it as a visible tick and macOS offers no
+moment at all.
 
 ## The whole fetch is a library function that narrates
 

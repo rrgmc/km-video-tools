@@ -227,10 +227,15 @@ done
 sed -e "s/@VERSION@/$VERSION/g" -e "s/@ARCHS@/$ARCHS/g" "$RES/distribution.xml" > "$STAGE/distribution.xml"
 xmllint --noout "$STAGE/distribution.xml"
 
-# The minimum is stated in the Distribution and nowhere else in this repository, so there is nothing
-# to reconcile it against -- but a Distribution that lost the element entirely would install onto a
-# system too old to open the window, silently. Asserted rather than assumed.
-grep -q '<os-version min=' "$STAGE/distribution.xml" \
+# The minimum used to be stated here and nowhere else, with nothing to reconcile it against. It now
+# has a second home -- `LSMinimumSystemVersion` in the bundle, which is the only copy a `.app` handed
+# over as a folder carries -- so this reads the number out rather than merely proving the element is
+# still there, and the round trip below fails if the two have drifted apart.
+#
+# A Distribution that lost the element entirely would install onto a system too old to open the
+# window, silently. That is still what the emptiness check is for.
+PKG_MIN="$(sed -n 's/.*<os-version min="\([^"]*\)".*/\1/p' "$STAGE/distribution.xml")"
+[ -n "$PKG_MIN" ] \
   || { echo "installer: $RES/distribution.xml no longer states a minimum OS version." >&2; exit 1; }
 
 cp "$RES/welcome.html" "$RES/conclusion.html" "$STAGE/resources/"
@@ -305,7 +310,77 @@ env -u DYLD_LIBRARY_PATH -u DYLD_FRAMEWORK_PATH -u DYLD_INSERT_LIBRARIES \
   "$STAGE/root/fetch/km-video-fetch" --version >/dev/null \
   || { echo "installer: the staged km-video-fetch could not answer --version." >&2; exit 1; }
 
+# -- what the bundle says it opens ----------------------------------------------------------------
+#
+# **The macOS half of the association, read back out of the package.** The Windows driver reads its
+# [Registry] entries with `reg.exe` for a reason that applies here word for word: nothing about
+# building fails when the declaration is missing. `documents()` in tools/dist/cmd.sh writes these
+# keys through a heredoc nested in another heredoc, so a mistake there produces a clean build, a
+# package somebody installs, and an application LaunchServices files under nothing at all.
+#
+# **From the Payload rather than from `$STAGE/root`**, because what is being proved is what somebody
+# receives. A staged bundle that is right beside an archive that is not is precisely the failure a
+# round trip exists for.
+PLIST="$EXPANDED/km-video-tools-downloader.pkg/Payload/KM Video Downloader.app/Contents/Info.plist"
+
+[ -f "$PLIST" ] \
+  || { echo "installer: the archived application has no Info.plist." >&2; exit 1; }
+plutil -lint "$PLIST" >/dev/null \
+  || { echo "installer: the bundle's Info.plist is not a valid plist." >&2
+       echo "           tools/dist/cmd.sh writes it; something there produced markup Apple refuses." >&2
+       exit 1; }
+
+# `-extract <path> raw` prints a scalar's value and an array's *count*, which is why the extension is
+# asked for twice below: once as the array, to say there is exactly one of them, and once by index,
+# for what it is. A missing key exits non-zero and prints to stderr, so the empty string is a real
+# answer meaning "not there" rather than an error being swallowed.
+plist_value() { # <key path> -> prints the value, or nothing
+  plutil -extract "$1" raw -o - "$PLIST" 2>/dev/null
+}
+
+DECLARED_UTI="$(plist_value UTExportedTypeDeclarations.0.UTTypeIdentifier)"
+[ -n "$DECLARED_UTI" ] \
+  || { echo "installer: the bundle exports no type declaration, so it associates nothing." >&2; exit 1; }
+
+# **A document type naming a type the bundle does not declare** is the macOS shape of an extension
+# registered to a ProgId with no command behind it: every piece present, and nothing opens.
+CLAIMED_UTI="$(plist_value CFBundleDocumentTypes.0.LSItemContentTypes.0)"
+[ "$CLAIMED_UTI" = "$DECLARED_UTI" ] \
+  || { echo "installer: the document type opens '$CLAIMED_UTI' but the bundle declares '$DECLARED_UTI'." >&2
+       exit 1; }
+
+EXT_KEY='UTExportedTypeDeclarations.0.UTTypeTagSpecification.public\.filename-extension'
+[ "$(plist_value "$EXT_KEY")" = 1 ] \
+  || { echo "installer: the declared type does not carry exactly one filename extension." >&2; exit 1; }
+
+# **Read rather than repeated.** There is one place the extension is decided for this platform --
+# `documents()` -- and a copy typed here would agree with it right up until the day it did not. The
+# Windows driver reads its own out of the .iss with `iss_define Extension` for the same reason.
+EXTENSION="$(plist_value "$EXT_KEY.0")"
+[ -n "$EXTENSION" ] \
+  || { echo "installer: the declared type names no filename extension." >&2; exit 1; }
+
+# Both of these are claims rather than descriptions, and both are load-bearing: `Owner` is this
+# program saying it defines the type, and an identifier is what LaunchServices files the declaration
+# under. Without the second the type is registered to nobody.
+RANK="$(plist_value CFBundleDocumentTypes.0.LSHandlerRank)"
+[ "$RANK" = Owner ] \
+  || { echo "installer: the document type's LSHandlerRank is '$RANK' rather than Owner." >&2; exit 1; }
+[ -n "$(plist_value CFBundleIdentifier)" ] \
+  || { echo "installer: the bundle has no CFBundleIdentifier; the type would register to nobody." >&2
+       exit 1; }
+
+# The other half of the number the Distribution states above. Two files say the floor -- an XML
+# attribute productbuild reads, and a plist key LaunchServices reads -- and neither can be derived
+# from the other, so what is left is to refuse a build where they disagree.
+BUNDLE_MIN="$(plist_value LSMinimumSystemVersion)"
+[ "$BUNDLE_MIN" = "$PKG_MIN" ] \
+  || { echo "installer: the Distribution requires macOS $PKG_MIN and the bundle says '$BUNDLE_MIN'." >&2
+       echo "           tools/dist/common.sh's dist_min_macos writes the bundle's; make them one number." >&2
+       exit 1; }
+
 echo "      both components expand to what was staged, and both programs run"
+echo "      the application declares $DECLARED_UTI, opens .$EXTENSION, and asks for macOS $BUNDLE_MIN"
 
 # -- and, if asked, the real thing ----------------------------------------------------------------
 #

@@ -41,6 +41,12 @@ cd "$(dirname "$0")/../.."
 # `LSUIElement` is deliberately *not* set: this is an application somebody looks at, not an agent.
 # `NSHighResolutionCapable` is what stops the webview being drawn at 1x and scaled up.
 #
+# **`LSMinimumSystemVersion` is the bundle saying the floor for itself**, and the reason it is here
+# rather than only in the installer's Distribution: the `.pkg` is one of two ways this is handed
+# over, and the other is this folder. A bundle without it, dropped on a Mac too old for the wry/tao
+# stack, fails in the dynamic loader before `main` -- with the key, the platform says so instead.
+# `tools/platform/macos/installer.sh` asserts this number and the Distribution's are the same one.
+#
 # Unsigned, and that is worth saying out loud: macOS will refuse a downloaded copy until it is
 # opened once from the context menu, or `xattr -d com.apple.quarantine` is run over it. A copy built
 # on the machine it runs on has no quarantine attribute and is not affected.
@@ -48,6 +54,7 @@ bundle() { # <app> <version> <folder>
   local app="$1" version="$2" folder="$3"
   local name; name="$(display_name "$app")"
   local root="$folder/$name.app"
+  local MIN_MACOS; MIN_MACOS="$(dist_min_macos)"
 
   rm -rf "$root"
   mkdir -p "$root/Contents/MacOS" "$root/Contents/Resources"
@@ -69,6 +76,7 @@ bundle() { # <app> <version> <folder>
   <key>CFBundleShortVersionString</key><string>$version</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>NSHighResolutionCapable</key><true/>
+  <key>LSMinimumSystemVersion</key><string>$MIN_MACOS</string>
 $(documents "$app")
 </dict>
 </plist>

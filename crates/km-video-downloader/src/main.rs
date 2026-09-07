@@ -7,6 +7,13 @@
 //! program that starts and vanishes.
 #![cfg_attr(all(windows, feature = "desktop"), windows_subsystem = "windows")]
 
+//! **And the failure on the way out is reported the same way**: an `Err` from here is written to a
+//! standard error nobody double-clicking this will ever read, so [`alert::show_fatal`] puts it on
+//! the screen where there is no console to read it in. See that module for why the check is on the
+//! terminal rather than on the build.
+//!
+//! [`alert::show_fatal`]: km_video_downloader::alert::show_fatal
 fn main() -> anyhow::Result<()> {
     km_video_downloader::run(km_video_downloader::Shell::Windowed)
+        .inspect_err(km_video_downloader::alert::show_fatal)
 }
