@@ -14,6 +14,8 @@
 //! * [`profile`] — the shape a karaoke package wants, and the re-encode that reaches it.
 //! * [`check`] — the three of those in the order that makes a verdict.
 //! * [`fetch`] — all of it, end to end, reported as events.
+//! * [`child`] — the one thing every subprocess above has in common on Windows: no console
+//!   window of its own.
 //!
 //! [`fetch`] is the one to start at. The others are what it is made of, and are public because a
 //! caller doing something more particular than "fetch these" should not have to reimplement them.
@@ -36,6 +38,7 @@
 
 pub mod args;
 pub mod check;
+pub mod child;
 pub mod fetch;
 pub mod list;
 pub mod probe;

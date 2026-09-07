@@ -11,6 +11,7 @@
 use std::process::{Command, Stdio};
 
 use anyhow::{Context, Result};
+use km_video_core::child::without_a_console_window;
 
 /// Asks the desktop to open one URL.
 ///
@@ -36,7 +37,12 @@ pub fn open(url: &str) -> Result<()> {
 
     // Nothing is read back, and a browser that writes to stderr on startup — several do — must not
     // have that appear in the middle of this program's own output.
-    command
+    //
+    // **And no console window either**, which is `cmd /c start` above rather than the other two: a
+    // GUI-subsystem executable has no console for a child to inherit, so Windows hands `cmd` one of
+    // its own and the application opens behind a black window that flashes and goes. On the shared
+    // command rather than in that branch, because it is a no-op everywhere else.
+    without_a_console_window(&mut command)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())

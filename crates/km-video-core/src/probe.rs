@@ -34,7 +34,7 @@ use std::process::{Command, Stdio};
 use anyhow::{Context, Result, bail};
 use serde::Deserialize;
 
-use crate::profile::without_a_console_window;
+use crate::child::without_a_console_window;
 
 /// Which ffprobe binary to run.
 ///
