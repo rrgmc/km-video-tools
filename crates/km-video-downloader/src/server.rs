@@ -447,6 +447,66 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    /// A handoff carrying no list is the plain second launch, and the answer to it is the window.
+    ///
+    /// **The waking is the whole of what happens**, which is why it is what this asserts rather than
+    /// a status alone: with no list there is nothing to take, and a 200 that woke nobody would be
+    /// this program agreeing it had been opened and then sitting behind whatever is in front of it.
+    ///
+    /// The empty body is what [`crate::handoff::hand_over`] sends for `None`, so this also pins the
+    /// two halves together: a `Fields::parse` that read `""` as a `path` field would turn a
+    /// come-forward into a refusal about a file called nothing.
+    #[tokio::test]
+    async fn a_handoff_with_no_list_brings_the_window_forward() {
+        let dir = std::env::temp_dir().join(format!(
+            "km-video-downloader-forward-{}-{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+
+        let state = State::new(dir.join("data"), None);
+        let woken = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let counter = std::sync::Arc::clone(&woken);
+        state.attach_wake(move || {
+            counter.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        });
+        let was = state.settings().out;
+
+        for body in ["", "path=", "path=%20"] {
+            let response = router(state.clone())
+                .oneshot(
+                    Request::builder()
+                        .method("POST")
+                        .uri("/opened")
+                        .header("content-type", "application/x-www-form-urlencoded")
+                        .body(Body::from(body))
+                        .expect("a request"),
+                )
+                .await
+                .expect("a response");
+            assert_eq!(response.status(), StatusCode::OK, "for a body of {body:?}");
+            let said = axum::body::to_bytes(response.into_body(), usize::MAX)
+                .await
+                .expect("a body");
+            assert_eq!(std::str::from_utf8(&said).expect("text"), OPENED_MARK);
+        }
+
+        assert_eq!(
+            woken.load(std::sync::atomic::Ordering::SeqCst),
+            3,
+            "each one has to reach the window; that is the only thing it asked for"
+        );
+        assert_eq!(
+            state.opened(),
+            None,
+            "nothing was opened, so nothing is held"
+        );
+        assert_eq!(state.settings().out, was, "and the folder did not move");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     /// `0.0.0.0` is a way of listening, not a place to visit.
     #[test]
     fn an_unspecified_address_is_shown_as_loopback() {

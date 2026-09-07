@@ -81,9 +81,10 @@ km-video-downloader anime.kmvf     # the window, that list filled in, nothing fe
 
 The output folder moves to the list's own folder and the list is offered ticked; pressing Fetch is
 still yours. Opening a second one while the window is up hands it to that window rather than starting
-a second copy. **Two different rules, worth keeping apart:** a folder's own list is the one file
-named exactly `km-video-fetch.kmvf` sitting in it, while the association is on the extension and
-opens any such file anywhere.
+a second copy — and so does opening the program itself again, which brings the window you already
+have forward instead of failing over a port it cannot have. **Two different rules, worth keeping
+apart:** a folder's own list is the one file named exactly `km-video-fetch.kmvf` sitting in it, while
+the association is on the extension and opens any such file anywhere.
 
 ## The window
 
