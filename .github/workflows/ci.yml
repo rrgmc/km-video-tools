@@ -30,11 +30,19 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # Stable rather than a pin, matching the deliberate absence of a `rust-toolchain.toml`; see
-      # `No rust-toolchain.toml` in docs/decisions.md. `rust-version` in the workspace manifest is
-      # what states the floor, and clippy reads it as the MSRV.
-      - run: rustup toolchain install stable --no-self-update --component rustfmt,clippy
-      - run: rustup default stable
+      # **The toolchain comes from `rust-toolchain.toml` and is named nowhere in this file.**
+      # `rustup toolchain install` with no toolchain argument resolves that file, the `components`
+      # list included, so a bump is one line there and no line here. The runners ship rustup
+      # already, so there is nothing to install it with first, and there is no `rustup default` —
+      # the file governs this checkout whatever the runner's default is. See
+      # `The Rust toolchain is pinned exactly` in docs/decisions.md.
+      #
+      # `dtolnay/rust-toolchain` cannot replace this: its `toolchain` input is required and it does
+      # not read `rust-toolchain.toml`, so it would mean the version written twice.
+      # `tools/dev/check-toolchain-pin.sh` fails if it appears here.
+      #
+      # `--no-self-update` because a rustup that upgrades itself mid-job has nothing to gain.
+      - run: rustup toolchain install --no-self-update
 
       - uses: Swatinem/rust-cache@v2
 

@@ -51,9 +51,17 @@ tasks:
   check:
     desc: fmt, clippy and tests, in the order a failure is cheapest to read
     cmds:
+      - task: toolchain-pin
       - task: fmt-check
       - task: lint
       - task: test
+
+  # First, because it reads three files and says one line -- and because the thing it guards against
+  # is a build on a compiler nobody chose, which is not a failure the three below can produce.
+  toolchain-pin:
+    desc: Fail if rust-toolchain.toml and Cargo.toml disagree about the compiler
+    cmds:
+      - '"{{.SH}}" tools/dev/check-toolchain-pin.sh'
 
   fmt:
     desc: Format everything

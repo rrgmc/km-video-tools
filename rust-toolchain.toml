@@ -1,0 +1,21 @@
+# **The one place the compiler version is decided.** `.github/workflows/ci.yml` reads it rather than
+# repeating it -- `rustup toolchain install` with no toolchain argument resolves this file, the
+# `components` list included -- so CI needs no edit when this line changes.
+#
+# **Exact, not `stable`, and that is a reversal.** This repository ran on `stable` until this file
+# existed; `The Rust toolchain is pinned exactly` in docs/decisions.md is why it no longer does, and
+# karaokemachine's `rust-toolchain.toml` is where the arrangement is copied from. The short of it:
+# `task lint` is clippy with `-D warnings`, so a floating channel lets a lint introduced upstream on
+# a Tuesday fail a branch that changed nothing relevant, and "passes locally" means only "passes on
+# whatever this machine last fetched".
+#
+# **`rust-version` in `Cargo.toml` has to be bumped with this**, and is the only other tracked copy
+# of the number; `tools/dev/check-toolchain-pin.sh`, which `task check` runs, fails if the two
+# disagree.
+#
+# No `targets` key, deliberately. Every build here is for the machine doing it -- nothing in the
+# repository passes `--target` -- and an entry here is a standard library every contributor
+# downloads whether they cross-compile or not.
+[toolchain]
+channel = "1.98.1"
+components = ["rustfmt", "clippy"]

@@ -10,10 +10,16 @@ members = ["crates/*"]
 [workspace.package]
 version = "1.7.0"
 edition = "2024"
-# The floor, not a pin. There is deliberately no `rust-toolchain.toml`: an exact channel is right for
-# an appliance whose build has to be reproducible, and wrong for a standalone tool other people
-# compile with whatever their distribution ships. This number is what clippy reads as the MSRV, there
-# being no `clippy.toml`.
+# **Equal to the pin in `rust-toolchain.toml`, and bumped with it.** That file decides the version;
+# this repeats it because no format lets a manifest derive it, and `tools/dev/check-toolchain-pin.sh`
+# fails if the two ever disagree.
+#
+# Understating it would not be merely untidy. There is no `clippy.toml`, so this number *is* clippy's
+# MSRV, and a low one suppresses the lints that suggest the idioms a newer compiler has; and
+# `resolver = "3"` is MSRV-aware, so it would also make `cargo update` prefer needlessly old
+# dependencies. For something built and handed out rather than published, the honest floor is the
+# compiler it is built with -- and nothing downstream reads this to decide anything, every member
+# here being `publish = false`.
 rust-version = "1.98.1"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/rrgmc/km-video-tools"

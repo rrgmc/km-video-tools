@@ -230,14 +230,33 @@ interaction in a program whose interface is otherwise a page.
 The picked *file* of links is the other half of the same fact, read the other way round: what the
 browser sends is the file's bytes, and the bytes are all that is wanted.
 
-## No `rust-toolchain.toml`
+## The Rust toolchain is pinned exactly
 
-karaokemachine pins an exact channel, and that is right for an appliance whose build must be
-reproducible and whose CI must not fail on a lint introduced on a Tuesday.
+**`rust-toolchain.toml` names one `x.y.z` version, and it is the only place the number is decided.**
 
-It is wrong here. This is a standalone tool other people compile with whatever their distribution
-ships, and a pin turns "I have Rust installed" into "rustup will now download a second toolchain".
-`rust-version` in the workspace manifest states the floor, and CI runs stable.
+This entry used to say the opposite, and the reversal is the point. The argument against a pin was
+that this is a standalone tool other people compile with whatever their distribution ships, so one
+turns "I have Rust installed" into "rustup will now download a second toolchain". That is the right
+answer for a library and this is not one — two programs and the crate they share, every member
+`publish = false`, built here and handed to somebody as a folder or an installer. Nothing compiles
+against it, so the pin is imposed on nobody but whoever works on it.
+
+**What the floating channel cost was not reproducibility in the abstract.** `task lint` is clippy
+with `-D warnings`, so a lint introduced upstream on a Tuesday fails a branch that changed nothing
+relevant, and "passes locally" means only "passes on whatever this machine last fetched". It also
+broke outright: `rust-version` was inherited from karaokemachine's pin at 1.98.1 while `stable` on
+the machine was still 1.98.0, and every cargo command in the workspace refused before it compiled
+anything. A pin is what makes those two numbers one decision instead of a race.
+
+**The number propagates rather than being repeated.** `.github/workflows/ci.yml` installs with
+`rustup toolchain install --no-self-update`, which resolves the file, `components` and all;
+`dtolnay/rust-toolchain` is deliberately not used, its `toolchain` input being required and unable to
+read the file, so keeping it would mean the version written twice. `Cargo.toml`'s `rust-version` is
+the one copy that no format lets us derive, and `tools/dev/check-toolchain-pin.sh` — which
+`task check` runs — fails naming a disagreement, a floating channel, or a returning `dtolnay` step.
+
+The cost is that a bump is now a commit rather than a `rustup update`. That is the trade
+karaokemachine made first, and its arrangement is what this copies.
 
 ## `dist/` is output, and nothing else writes there
 

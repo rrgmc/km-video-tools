@@ -76,6 +76,10 @@ compiler, no bindgen, no libclang.
 
 ## Building
 
+**The compiler version is not yours to choose.** `rust-toolchain.toml` names an exact one and pulls
+`rustfmt` and `clippy` in with it, so the first `cargo` command in the checkout downloads what that
+file asks for and `rustup update` is not part of building this.
+
 ```sh
 cargo build --workspace
 cargo run -p km-video-fetch -- --help
