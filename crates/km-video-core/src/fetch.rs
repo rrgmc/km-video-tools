@@ -24,7 +24,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
 
-use crate::{args, check, profile, run};
+use crate::{args, check, list, profile, run};
 
 /// Whether to keep going, said by the same closure that hears about everything else.
 ///
@@ -101,6 +101,12 @@ pub enum Event {
     /// **Carries the count**, which is what lets a caller write a heading — "fetched 3 videos" —
     /// before the [`Event::Arrived`] events rather than having to hold them all and count them
     /// afterwards. A progress bar over the checking phase needs the same number.
+    ///
+    /// **One per fetch, however many yt-dlp runs it took.** A marked list is several runs (see
+    /// [`crate::list`]) and this is emitted once when the last of them has finished, carrying their
+    /// combined haul. A second one would overwrite a caller's total with the last run's count alone
+    /// — which, where that run fetched nothing, reads as *nothing is known yet* and leaves a
+    /// progress bar sweeping for the rest of a run that succeeded.
     Downloaded {
         /// Whether yt-dlp exited successfully. False over a playlist usually means one video was
         /// private or region-locked and the rest still arrived.
@@ -237,30 +243,94 @@ pub fn fetch(request: &Request, mut on_event: impl FnMut(Event) -> Flow) -> Resu
     std::fs::create_dir_all(&plan.out)
         .with_context(|| format!("creating {}", plan.out.display()))?;
 
-    // yt-dlp is given the bare name and resolves it against `-P`; this is the same file, spelled so
-    // that it can be read back. Removed first, because a stale one from an interrupted run would
-    // otherwise be reported as this run's haul.
-    let records = args::Plan::records_path(&plan.out);
-    let _ = std::fs::remove_file(&records);
+    // One run, or the several a marked list asks for. Refuses here — before anything is downloaded
+    // — for the one thing a list can say that this will not do, which is name a folder outside the
+    // one the fetch was pointed at.
+    let plans = runs(&plan)?;
+    // Whatever `runs` wrote, gone however this function returns. There is a `?` between the runs.
+    let _scratch = Scratch::of(&plans);
 
-    let argv = args::argv(&plan);
-    on_event(Event::Command(command_line(&binary, &argv)));
+    // Carried with the destination that produced each one, for the deduplication below.
+    let mut fetched: Vec<(PathBuf, run::Record)> = Vec::new();
+    let mut completed = true;
+    let mut stopped = false;
 
-    let completed = match request.progress {
-        // Nothing to stop against: the child owns the terminal, so Ctrl-C reaches it directly and
-        // is a better answer than anything this could arrange.
-        Progress::Terminal => run::spawn(&binary, &argv)?,
-        Progress::Watched => {
-            run::spawn_watched(&binary, &argv, |line| match progress_line(line) {
-                Some(event) => on_event(event),
-                None => on_event(Event::Said(line.to_owned())),
-            })?
+    for sub in &plans {
+        // **Between the runs, which is where a stop has to take effect.** Somebody who pressed Stop
+        // during a list of single videos did not mean *and now start the playlist*.
+        if stopped {
+            break;
         }
-    };
 
-    let fetched = run::read_records(&records)?;
-    let _ = std::fs::remove_file(&records);
-    let mut stopped = on_event(Event::Downloaded {
+        // Per run, and each run's own: a destination is `-P`, and `-P` is what resolves both of
+        // these names.
+        std::fs::create_dir_all(&sub.out)
+            .with_context(|| format!("creating {}", sub.out.display()))?;
+
+        // yt-dlp is given the bare name and resolves it against `-P`; this is the same file,
+        // spelled so that it can be read back. Removed first, because `--print-to-file` *appends* —
+        // so a stale file from an interrupted run, or the one the previous run left, would
+        // otherwise be counted as this run's haul.
+        let records = args::Plan::records_path(&sub.out);
+        let _ = std::fs::remove_file(&records);
+
+        let argv = args::argv(sub);
+        if on_event(Event::Command(command_line(&binary, &argv))) == Flow::Stop {
+            stopped = true;
+            break;
+        }
+
+        let (ok, asked_to_stop) = match request.progress {
+            // Nothing to stop against: the child owns the terminal, so Ctrl-C reaches it directly
+            // and is a better answer than anything this could arrange. It reaches this process too,
+            // so there is no next run to worry about either.
+            Progress::Terminal => (run::spawn(&binary, &argv)?, false),
+            Progress::Watched => {
+                // **Captured here rather than asked for afterwards.** `run::spawn_watched`
+                // deliberately folds a stop into success — a killed child exits unsuccessfully and
+                // reporting that as a failure would tell somebody who pressed Stop that yt-dlp had
+                // broken — so this closure is the only place the answer exists. `|=` rather than
+                // `=`, because collected stderr is replayed through the sink *after* the kill and a
+                // plain assignment would lose it.
+                let mut asked = false;
+                let ok = run::spawn_watched(&binary, &argv, |line| {
+                    let flow = match progress_line(line) {
+                        Some(event) => on_event(event),
+                        None => on_event(Event::Said(line.to_owned())),
+                    };
+                    asked |= flow == Flow::Stop;
+                    flow
+                })?;
+                (ok, asked)
+            }
+        };
+        completed &= ok;
+        stopped |= asked_to_stop;
+
+        // **Kept only where this destination has not already reported it**, which is a thing only a
+        // dry run can produce: in an ordinary run the folder's own archive stops a video named both
+        // on its own line and inside a marked playlist arriving twice, but `--simulate` writes no
+        // archive, so both of that folder's runs report it and the dry run would promise one more
+        // video than the real one delivers.
+        //
+        // **Per destination rather than across the whole fetch**, because the same video asked for
+        // in two folders is two files and was asked for twice on purpose.
+        for record in run::read_records(&records)? {
+            let seen = record.id.is_some()
+                && fetched
+                    .iter()
+                    .any(|(out, already)| out == &sub.out && already.id == record.id);
+            if !seen {
+                fetched.push((sub.out.clone(), record));
+            }
+        }
+        let _ = std::fs::remove_file(&records);
+    }
+
+    let fetched: Vec<run::Record> = fetched.into_iter().map(|(_, record)| record).collect();
+
+    // One event for the whole fetch, however many runs it took. See [`Event::Downloaded`].
+    stopped |= on_event(Event::Downloaded {
         ok: completed,
         fetched: fetched.len(),
     }) == Flow::Stop;
@@ -308,6 +378,126 @@ pub fn fetch(request: &Request, mut on_event: impl FnMut(Event) -> Flow) -> Resu
         all_playable,
         stopped,
     })
+}
+
+/// The yt-dlp runs one plan asks for: the one it has always made, or the several a marked list
+/// needs.
+///
+/// **The split is here rather than in [`args::argv`]**, which builds an argv and spawns nothing and
+/// does no file I/O at all. Deciding how many runs there are means reading the list, and the module
+/// that chooses arguments should stay a pure function of the struct it is given — that separation is
+/// the reason every one of those arguments can be asserted by value. This is the same shape: a pure
+/// function of a plan and a file, so which runs a list produces is assertable too.
+///
+/// **One run per distinct pair of `(expand, destination)`**, because `--yes-playlist` /
+/// `--no-playlist` and `-P` are both properties of an invocation and yt-dlp offers no per-URL form
+/// of either.
+///
+/// **Every single-video run first, then every playlist run.** Three reasons, and the third is why
+/// the order is fixed rather than derived from the flag: a folder's archive makes the first run win
+/// a duplicate, and *this one video* is the more specific statement than *this playlist that happens
+/// to contain it*; the single-video runs are the fast half, so somebody watching sees their named
+/// picks land before a two-hundred-item playlist starts; and an order that depended on a checkbox
+/// would be worse to reason about and worse to test.
+fn runs(plan: &args::Plan) -> Result<Vec<args::Plan>> {
+    let Some(from_file) = &plan.from_file else {
+        return Ok(vec![plan.clone()]);
+    };
+
+    let entries = list::read(from_file);
+    // **A list that says nothing is handed over unread and unrewritten**, byte for byte the argv
+    // this tool has always built. That is what keeps a `km-video-fetch.txt` somebody maintains by
+    // hand from being rewritten behind their back, and what keeps a list carrying things
+    // [`crate::list`] does not model — a `;` comment, an option yt-dlp itself understands — working
+    // exactly as it did. An unreadable list says nothing, and is yt-dlp's to complain about.
+    if entries
+        .iter()
+        .all(|entry| entry.expand.is_none() && entry.out.is_none())
+    {
+        return Ok(vec![plan.clone()]);
+    }
+
+    // Grouped in first-mention order, so the runs come out in the order the list reads.
+    let mut groups: Vec<(bool, PathBuf, Vec<list::Entry>)> = Vec::new();
+    for entry in entries {
+        let expand = entry.expands(plan.playlist);
+        let out = match &entry.out {
+            Some(said) => list::destination(&plan.out, said)?,
+            None => plan.out.clone(),
+        };
+        match groups
+            .iter_mut()
+            .find(|(kind, folder, _)| *kind == expand && folder == &out)
+        {
+            Some((_, _, lines)) => lines.push(entry),
+            None => groups.push((expand, out, vec![entry])),
+        }
+    }
+
+    let mut plans = Vec::with_capacity(groups.len());
+    // `false` before `true`: the single-video runs first. See this function's header.
+    for wanted in [false, true] {
+        for (expand, out, lines) in groups.iter().filter(|(kind, _, _)| *kind == wanted) {
+            let name = if *expand {
+                args::PLAYLISTS_NAME
+            } else {
+                args::SINGLES_NAME
+            };
+            let path = out.join(name);
+            std::fs::create_dir_all(out).with_context(|| format!("creating {}", out.display()))?;
+            list::write(&path, lines).with_context(|| format!("writing {}", path.display()))?;
+            plans.push(args::Plan {
+                targets: Vec::new(),
+                from_file: Some(path),
+                playlist: *expand,
+                out: out.clone(),
+                // **Each folder's own**, which is what `ARCHIVE_NAME` already claims an archive is:
+                // a fact about *this folder*, carried with it if it is copied elsewhere. So a video
+                // asked for in two folders lands in both, which is what asking for two folders
+                // meant.
+                archive: plan
+                    .archive
+                    .as_ref()
+                    .map(|_| args::Plan::default_archive(out)),
+                ..plan.clone()
+            });
+        }
+    }
+    Ok(plans)
+}
+
+/// The lists a marked run wrote for itself, removed however [`fetch`] returns.
+///
+/// The same worry [`args::RECORDS_NAME`] has: for the moment they exist these sit in somebody's
+/// folder of songs, and there is a real `?` between the runs — reading a record file — that would
+/// otherwise leave one there for good. It cannot help a Ctrl-C, which is true of the record file too
+/// and is accepted for the same reason.
+struct Scratch(Vec<PathBuf>);
+
+impl Scratch {
+    /// The generated lists among these plans, which is none of them where nothing was generated.
+    fn of(plans: &[args::Plan]) -> Self {
+        Self(
+            plans
+                .iter()
+                .filter(|plan| {
+                    plan.from_file.as_ref().is_some_and(|path| {
+                        let name = path.file_name().unwrap_or_default();
+                        name == args::SINGLES_NAME || name == args::PLAYLISTS_NAME
+                    })
+                })
+                .filter_map(|plan| plan.from_file.clone())
+                .collect(),
+        )
+    }
+}
+
+impl Drop for Scratch {
+    fn drop(&mut self) {
+        for path in &self.0 {
+            let _ = std::fs::remove_file(path);
+        }
+    }
 }
 
 /// Measures one arrived file, re-encoding it when `encoders` says to.
@@ -498,6 +688,181 @@ mod tests {
         };
         assert_eq!(title, "E=mc2 (Live) - A Band");
         assert!((percent - 10.0).abs() < f32::EPSILON);
+    }
+
+    /// A folder of this test's own, so two of them cannot tread on each other.
+    fn scratch(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join("km-video-fetch-runs").join(name);
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("a folder to work in");
+        dir
+    }
+
+    fn plan_over(out: &Path, list: &str, playlist: bool) -> args::Plan {
+        let from = out.join("list.txt");
+        std::fs::write(&from, list).expect("write the list");
+        args::Plan {
+            targets: Vec::new(),
+            from_file: Some(from),
+            playlist,
+            out: out.to_path_buf(),
+            limit: None,
+            archive: Some(args::Plan::default_archive(out)),
+            cookies_from_browser: None,
+            subs: false,
+            format: None,
+            sort: None,
+            dry_run: false,
+            progress_lines: false,
+        }
+    }
+
+    /// The compatibility guarantee, and the most important test here: a list that says nothing is
+    /// handed to yt-dlp as itself, and the argv is the one this tool has always built.
+    #[test]
+    fn a_list_with_no_markers_makes_the_one_run_it_has_always_made() {
+        let dir = scratch("plain");
+        let plan = plan_over(
+            &dir,
+            "# a heading\n\nhttps://example.invalid/a\nhttps://example.invalid/b\n",
+            false,
+        );
+
+        let plans = runs(&plan).expect("a plain list is one run");
+        assert_eq!(plans.len(), 1);
+        assert_eq!(
+            plans[0].from_file, plan.from_file,
+            "the caller's own file, not a copy of it"
+        );
+        assert_eq!(args::argv(&plans[0]), args::argv(&plan));
+        assert!(
+            !dir.join(args::SINGLES_NAME).exists(),
+            "and nothing was written beside it"
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_mixed_list_makes_one_run_of_each_kind_with_the_singles_first() {
+        let dir = scratch("mixed");
+        let plan = plan_over(
+            &dir,
+            "https://example.invalid/a\n--playlist https://example.invalid/list\n",
+            false,
+        );
+
+        let plans = runs(&plan).expect("a mixed list splits");
+        assert_eq!(plans.len(), 2);
+        assert!(!plans[0].playlist, "the single videos go first");
+        assert!(plans[1].playlist);
+        assert_eq!(plans[0].from_file, Some(dir.join(args::SINGLES_NAME)));
+        assert_eq!(plans[1].from_file, Some(dir.join(args::PLAYLISTS_NAME)));
+
+        assert_eq!(
+            std::fs::read_to_string(dir.join(args::SINGLES_NAME)).unwrap(),
+            "https://example.invalid/a\n"
+        );
+        assert_eq!(
+            std::fs::read_to_string(dir.join(args::PLAYLISTS_NAME)).unwrap(),
+            "--playlist https://example.invalid/list\n"
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Both directions, because `--no-playlist` is the only way to say *not this one* in a run
+    /// launched with `--playlist`, and a marker that only worked one way would be half a feature.
+    #[test]
+    fn a_marker_overrides_the_run_in_both_directions() {
+        let dir = scratch("both-ways");
+        let plan = plan_over(
+            &dir,
+            "https://example.invalid/list\n--no-playlist https://example.invalid/one\n",
+            true,
+        );
+
+        let plans = runs(&plan).expect("a marked list splits");
+        assert_eq!(plans.len(), 2);
+        assert!(!plans[0].playlist, "the marked line, against the flag");
+        assert!(plans[1].playlist, "and the unmarked one follows it");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn each_destination_is_a_run_of_its_own_carrying_its_own_archive() {
+        let dir = scratch("folders");
+        let plan = plan_over(
+            &dir,
+            "https://example.invalid/a\n\
+             --out anime https://example.invalid/b\n\
+             --playlist --out anime/openings https://example.invalid/list\n",
+            false,
+        );
+
+        let plans = runs(&plan).expect("folders split too");
+        assert_eq!(plans.len(), 3);
+
+        let outs: Vec<_> = plans.iter().map(|plan| plan.out.clone()).collect();
+        assert_eq!(
+            outs,
+            vec![
+                dir.clone(),
+                dir.join("anime"),
+                dir.join("anime").join("openings"),
+            ],
+            "singles first, then the playlist, folders in the order the list names them"
+        );
+
+        for sub in &plans {
+            assert_eq!(
+                sub.archive,
+                Some(args::Plan::default_archive(&sub.out)),
+                "each folder answers for itself what is already in it"
+            );
+            assert!(sub.out.is_dir(), "and the folder was made");
+        }
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Refused here rather than by yt-dlp, and refused rather than quietly clamped: a list is a
+    /// file, and `--out ../songs` in one copied between two machines writes into whatever happens to
+    /// sit beside the destination on the second.
+    #[test]
+    fn a_list_cannot_name_a_folder_outside_the_one_it_was_pointed_at() {
+        let dir = scratch("escape");
+        let plan = plan_over(&dir, "--out ../beside https://example.invalid/a\n", false);
+        assert!(runs(&plan).is_err());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The generated lists are this function's own business and must not outlive it.
+    #[test]
+    fn the_lists_a_run_wrote_for_itself_are_taken_away_again() {
+        let dir = scratch("scratch");
+        let plan = plan_over(
+            &dir,
+            "https://example.invalid/a\n--playlist https://example.invalid/list\n",
+            false,
+        );
+
+        let plans = runs(&plan).expect("a mixed list splits");
+        assert!(dir.join(args::SINGLES_NAME).exists());
+        drop(Scratch::of(&plans));
+        assert!(!dir.join(args::SINGLES_NAME).exists());
+        assert!(!dir.join(args::PLAYLISTS_NAME).exists());
+
+        // ...and a plan holding the caller's own list is not something to delete.
+        let plain = plan_over(&dir, "https://example.invalid/a\n", false);
+        drop(Scratch::of(&runs(&plain).unwrap()));
+        assert!(
+            plain.from_file.as_ref().unwrap().exists(),
+            "a file this did not write is not this function's to remove"
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// The point is that what is printed can be pasted straight back into a shell — a format

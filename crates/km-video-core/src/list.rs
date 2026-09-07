@@ -113,11 +113,8 @@ fn read_entry(line: &str) -> Option<Entry> {
         out: None,
     };
 
-    loop {
-        // No whitespace left means no marker can be starting here: the whole of `rest` is the URL.
-        let Some((word, tail)) = rest.split_once(char::is_whitespace) else {
-            break;
-        };
+    // No whitespace left means no marker can be starting here: the whole of `rest` is the URL.
+    while let Some((word, tail)) = rest.split_once(char::is_whitespace) {
         let tail = tail.trim_start();
         match word {
             EXPAND_MARKER => entry.expand = Some(true),
