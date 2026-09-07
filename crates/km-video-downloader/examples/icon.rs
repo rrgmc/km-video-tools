@@ -9,13 +9,13 @@
 //!
 //! # Why there is a drawing here at all
 //!
-//! Because these programs are run beside karaokemachine's on one desktop, and two taskbar buttons
+//! Because these programs are run beside the karaoke app's on one desktop, and two taskbar buttons
 //! wearing the same icon are not tellable apart. The icon has to belong to that family and not be a
 //! copy of any of it.
 //!
 //! So this is the **same drawing under a fifth palette**: angular bands of color filling the tile, a
 //! near-black plate over them, and `KM` on the plate — the K in near-white, the M in the hue that
-//! names the program. karaokemachine leads with amber for the machine, blue for the package
+//! names the program. The karaoke app leads with amber for the machine, blue for the package
 //! builder, green for the offline remote and magenta for km-admin; this leads with a **cyan** none
 //! of them uses, which is the only thing that has to differ for the icons to be tellable apart at
 //! 16 pixels.
@@ -24,7 +24,7 @@
 //!
 //! The original renderer is `crates/playback/km-display/examples/icon.rs` over there, and it reads
 //! its colors out of `km_display::theme::Theme` and its types out of SDL. Neither is reachable from
-//! a repository whose whole point is that it depends on nothing of karaokemachine's — so the
+//! a repository whose whole point is that it depends on nothing of the karaoke app's — so the
 //! geometry below is written out again and the four colors it borrows are written down as literals.
 //! **That is a copy and it can drift**, which is accepted for the same reason the packaging profile
 //! is copied: the alternative was a dependency far heavier than the thing being borrowed. If the two
@@ -53,7 +53,7 @@ const ICO_SIZES: [u32; 4] = [16, 32, 48, 256];
 
 // -- the palette ----------------------------------------------------------------------------------
 //
-// Four of these five are karaokemachine's own theme values, written down rather than imported. The
+// Four of these five are the karaoke app's own theme values, written down rather than imported. The
 // fifth is this program's, and is the only one that makes the icon its own.
 
 /// The deep violet the bands sit on. `Theme::icon_ground`.
@@ -68,7 +68,7 @@ const LETTER: [f32; 3] = rgb(0xEC, 0xEF, 0xF4);
 /// **The fifth lead, and this program's own.**
 ///
 /// A **vermilion**, and it is picked by hue distance rather than by taste. The four in
-/// karaokemachine sit at 45° (the machine's amber `FFC107`), 148° (the remote's green `57E79A`),
+/// the karaoke app sit at 45° (the machine's amber `FFC107`), 148° (the remote's green `57E79A`),
 /// 196° (the package builder's blue `5FD3FF`) and 324° (km-admin's magenta `C43A8E`). This is 11°,
 /// which is 34° from its nearest neighbour.
 ///

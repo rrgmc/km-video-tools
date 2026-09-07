@@ -19,7 +19,7 @@
 //!
 //! # Where the line is drawn
 //!
-//! This is a **packager's** tool and it is deliberately not part of the karaoke machine — which is
+//! This is a **packager's** tool and it is deliberately not part of the karaoke app — which is
 //! the whole reason it lives in a repository of its own. Nothing in that product reaches the network
 //! for a song, at run time or at any other time; the appliance may have no internet at all. What
 //! this program does is what a person asked it to do, one URL at a time.

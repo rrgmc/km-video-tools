@@ -3,7 +3,7 @@
 //! # Why this is a library and not one binary crate
 //!
 //! Because the repository is meant to hold more than one program. The command line is one way to
-//! ask for a video; a local web UI, in the shape karaokemachine's `km-package-builder` and
+//! ask for a video; a local web UI, in the shape the karaoke app's `km-package-builder` and
 //! `km-admin` already settled on, is the other one planned. Both want the same four things, and
 //! none of the four has anything to say about how it was asked for:
 //!

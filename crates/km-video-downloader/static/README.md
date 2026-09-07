@@ -13,7 +13,7 @@ the network, so it should not need the network to draw itself.
 
 | File | What it is |
 |---|---|
-| `htmx.min.js` | htmx 2.0.4, unmodified. The same copy karaokemachine's three pages vendor. |
+| `htmx.min.js` | htmx 2.0.4, unmodified. The same copy the karaoke app's three pages vendor. |
 | `htmx-LICENSE.txt` | htmx's license, 0BSD, served at `/static/htmx-LICENSE.txt` because a vendored dependency's terms travel with it. |
 | `style.css` | Hand-written, no framework. Light, and pinned — see the note at the top of it. |
 | `ui.js` | This program's own, and small on purpose. |

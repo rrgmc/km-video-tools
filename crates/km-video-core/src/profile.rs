@@ -3,7 +3,7 @@
 //!
 //! # This file is a copy, and the other one is authoritative
 //!
-//! The original is `tools/cmd/km-pack/src/profile.rs` in the karaokemachine repository, and that is
+//! The original is `tools/cmd/km-pack/src/profile.rs` in the karaoke app's repository, and that is
 //! the one that *decides*: it runs inside the packager, so what it accepts is what a package
 //! actually contains. This copy exists so the downloader can answer, before anything is packaged,
 //! whether what arrived will be copied or re-encoded — a question worth asking at download time,

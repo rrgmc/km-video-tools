@@ -21,7 +21,7 @@
 //!   situation in the first place — two guards, because a file fetched by other means can still
 //!   arrive carrying one. It buys nothing here, since the machine never shows cover art.
 //! * **`--embed-subs`.** It muxes a `mov_text` stream, and the `Searching a video's words` decision
-//!   in karaokemachine is that the project does not index a video's captions. Available behind
+//!   in the karaoke app is that the project does not index a video's captions. Available behind
 //!   `--subs` for anyone who later wants them; off is the default because it changes the shape of
 //!   the file for no benefit the machine can currently use.
 //! * **`--restrict-filenames`.** It strips names to ASCII, and the material this exists for is
