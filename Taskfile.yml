@@ -17,17 +17,17 @@
 # nothing has to be on PATH but `git` -- which is the whole point on Windows, where Git's `bin/` is
 # normally *not* on PATH and a bare `bash` is WSL's.
 #
-# The rule any new task has to respect, and it is the same one karaokemachine's Taskfile writes down:
-# a bash script is invoked through `{{.SH}}` and never a bare `bash`.
+# The rule any new task has to respect, and it is the same one the karaoke app's Taskfile writes
+# down: a bash script is invoked through `{{.SH}}` and never a bare `bash`.
 
 version: '3'
 
 silent: true
 
 vars:
-  # The staging script is bash, and **on Windows a bare `bash` is WSL's** -- a different git looking at
-  # a different filesystem, with no MSVC cargo behind it. Naming Git Bash explicitly is the fix, and it
-  # is the same one karaokemachine's Taskfile makes for the same reason.
+  # The staging script is bash, and **on Windows a bare `bash` is WSL's** -- a different git looking
+  # at a different filesystem, with no MSVC cargo behind it. Naming Git Bash explicitly is the fix,
+  # and it is the same one the karaoke app's Taskfile makes for the same reason.
   #
   # Without this, `task dist` does not reach a wrong bash -- it reaches none at all: Task's embedded
   # shell honours no `#!` line, so it hands `cmd.sh` to Windows as an executable and Windows answers

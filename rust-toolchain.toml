@@ -4,7 +4,7 @@
 #
 # **Exact, not `stable`, and that is a reversal.** This repository ran on `stable` until this file
 # existed; `The Rust toolchain is pinned exactly` in docs/decisions.md is why it no longer does, and
-# karaokemachine's `rust-toolchain.toml` is where the arrangement is copied from. The short of it:
+# The karaoke app's `rust-toolchain.toml` is where the arrangement is copied from. The short of it:
 # `task lint` is clippy with `-D warnings`, so a floating channel lets a lint introduced upstream on
 # a Tuesday fail a branch that changed nothing relevant, and "passes locally" means only "passes on
 # whatever this machine last fetched".
