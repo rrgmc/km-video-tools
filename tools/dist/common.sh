@@ -172,11 +172,17 @@ so it needed no administrator password and it is not visible to other accounts o
 If you ticked the PATH box, `km-video-fetch` can be typed in any new console window. A console that
 was already open when you installed will not have it -- open a new one.
 
+If you ticked the .kmvf box, double-clicking a list of links opens KM Video Downloader with that
+list filled in and the output folder set to the folder the list is in. Nothing is fetched until you
+press Fetch, and a second one opened while the window is up goes to that window rather than starting
+a second copy.
+
 Removing it
 -----------
 
 Settings, then Apps, then Installed apps: find "KM Video Tools" and choose Uninstall. There is also
-an entry in the Start menu folder. The uninstaller takes the PATH entry back out.
+an entry in the Start menu folder. The uninstaller takes the PATH entry and the .kmvf association
+back out.
 
 **Your videos are not touched.** Neither is the download folder you chose, wherever you put it.
 Settings live in %APPDATA%\km-video-downloader and are left alone too; delete that folder by hand if
@@ -197,6 +203,16 @@ Where it is
 KM Video Downloader is in /Applications, and km-video-fetch is in /usr/local/km-video-tools with a
 symlink in /usr/local/bin -- which is already on your PATH, so there is nothing to add to a .zshrc
 and nothing was added to one.
+
+Opening a list
+--------------
+
+KM Video Downloader says it opens .kmvf files, so double-clicking a list of links opens it with that
+list filled in and the output folder set to the folder the list is in. Nothing is fetched until you
+press Fetch, and a second one opened while the window is up goes to that window.
+
+There was no box to tick for this: the application declares the file type and macOS notices when it
+is in /Applications. Removing the application removes the association with it.
 
 Removing it
 -----------

@@ -69,11 +69,63 @@ bundle() { # <app> <version> <folder>
   <key>CFBundleShortVersionString</key><string>$version</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>NSHighResolutionCapable</key><true/>
+$(documents "$app")
 </dict>
 </plist>
 PLIST
 
   echo "dist: bundled $root"
+}
+
+# What a bundle opens, where it opens anything.
+#
+# **This is macOS's half of the file association**, the other being the Windows installer's
+# [Registry] section. There is nothing to install: LaunchServices reads these keys out of the plist
+# when the bundle lands in /Applications, so the .pkg needs no step of its own.
+#
+# **Exported rather than imported**, which is the distinction Apple draws between declaring a type
+# and merely recognising one: `.kmvf` is defined in this repository -- `km_video_core::args`'s
+# EXTENSION and BATCH_NAME -- and this is where it is written down for the platform.
+#
+# **Conforming to `public.plain-text`**, because that is what it is. A list is a text file that
+# happens to have a grammar, and saying so is what lets an editor open one and Spotlight index it.
+#
+# **`LSHandlerRank` is Owner and the role is Editor**, both of which are claims rather than
+# descriptions: this program defines the type, and it may write one back out.
+#
+# Dispatched by name, like `display_name` and `readme` below, and for their reason: only the
+# downloader has a page to open a list on, and `km-video-fetch` would get a bundle of its own the
+# day an `icon/km-video-fetch.icns` appears beside the other one.
+documents() { # <app>
+  [ "$1" = km-video-downloader ] || return 0
+  cat <<'PLIST'
+  <key>CFBundleDocumentTypes</key>
+  <array>
+    <dict>
+      <key>CFBundleTypeName</key><string>KM Video Tools fetch list</string>
+      <key>CFBundleTypeRole</key><string>Editor</string>
+      <key>CFBundleTypeIconFile</key><string>km-video-downloader</string>
+      <key>LSHandlerRank</key><string>Owner</string>
+      <key>LSItemContentTypes</key>
+      <array><string>com.rrgmc.km-video-tools.fetch-list</string></array>
+    </dict>
+  </array>
+  <key>UTExportedTypeDeclarations</key>
+  <array>
+    <dict>
+      <key>UTTypeIdentifier</key><string>com.rrgmc.km-video-tools.fetch-list</string>
+      <key>UTTypeDescription</key><string>KM Video Tools fetch list</string>
+      <key>UTTypeIconFile</key><string>km-video-downloader</string>
+      <key>UTTypeConformsTo</key>
+      <array><string>public.plain-text</string></array>
+      <key>UTTypeTagSpecification</key>
+      <dict>
+        <key>public.filename-extension</key><array><string>kmvf</string></array>
+        <key>public.mime-type</key><array><string>text/plain</string></array>
+      </dict>
+    </dict>
+  </array>
+PLIST
 }
 
 # What a program is called where a person reads it rather than types it.
@@ -205,6 +257,18 @@ Running it
 opens the window. --browser uses a browser tab instead, and --open opens one alongside. The page is
 at http://127.0.0.1:8181/ either way; closing the window stops the program, as does Ctrl-C in the
 console build.
+
+    km-video-downloader <list>.kmvf
+
+opens with that list of links filled in and the output folder set to the folder the list is in.
+Nothing is fetched until you press Fetch. A .kmvf is an ordinary text file of links, one per line,
+with the same optional --playlist / --no-playlist / --out markers km-video-fetch reads; a folder can
+keep one called km-video-fetch.kmvf and this program offers it whenever that folder is the output
+folder.
+
+The setup program can associate .kmvf with this program, so double-clicking one does the above.
+Double-clicking a second one while the window is open hands it to the window that is already there
+rather than starting a second copy.
 
 It listens on this computer only. There is no password on it, and it writes files as you --- so
 --lan, which makes it reachable from the rest of your network, is for a network you trust and only
