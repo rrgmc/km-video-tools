@@ -26,6 +26,7 @@ pub mod browse;
 #[cfg(feature = "desktop")]
 pub mod desktop;
 pub mod handlers;
+pub mod handoff;
 pub mod job;
 pub mod opener;
 pub mod server;
@@ -82,6 +83,22 @@ pub fn say(line: &str) {
 #[derive(Debug, Parser)]
 #[command(name = "km-video-downloader", version, about, long_about = None)]
 pub struct Cli {
+    /// A list of links to open.
+    ///
+    /// **What a file association hands over**, and the only argument this program takes
+    /// positionally, because a shell association passes a path and nothing else. See
+    /// [`km_video_core::args::EXTENSION`].
+    ///
+    /// Pre-filled and nothing more: the folder moves to this list's own folder and the list is
+    /// offered on the page, ticked. Nothing is fetched until somebody presses Fetch — opening a
+    /// document says *look at this*, not *do it*.
+    ///
+    /// **macOS never uses this**, and that is the platform's rule rather than a gap here: it
+    /// delivers a document as an Apple Event rather than as an argument, which `desktop.rs` answers
+    /// with `Event::Opened`.
+    #[arg(value_name = "PATH")]
+    pub list: Option<PathBuf>,
+
     /// The port to listen on.
     #[arg(long, default_value_t = DEFAULT_PORT)]
     pub port: u16,
@@ -168,6 +185,28 @@ fn will_open_a_browser(shell: Shell, cli: &Cli) -> bool {
     !will_have_a_window(shell, cli) && (cli.open || matches!(shell, Shell::Windowed))
 }
 
+/// The list this run was asked to open, tidied the way a typed path is.
+///
+/// A shell hands an association's argument over with whatever quoting it had, so this goes through
+/// the same [`browse::tidy`] the folder field uses rather than being taken as typed.
+fn opened_list(cli: &Cli) -> Option<PathBuf> {
+    cli.list
+        .as_ref()
+        .map(|list| browse::tidy(&list.display().to_string()))
+        .filter(|list| !list.as_os_str().is_empty())
+}
+
+/// Whether a bind failed because something already has the port.
+///
+/// **Asked of the source rather than of the message.** `server::bind` wraps its error with a
+/// sentence for a person, and matching on that sentence would break the day it is reworded.
+fn address_is_taken(error: &anyhow::Error) -> bool {
+    error
+        .chain()
+        .filter_map(|cause| cause.downcast_ref::<std::io::Error>())
+        .any(|io| io.kind() == std::io::ErrorKind::AddrInUse)
+}
+
 /// Starts the program.
 pub fn run(shell: Shell) -> Result<()> {
     let cli = Cli::parse();
@@ -191,8 +230,31 @@ pub fn run(shell: Shell) -> Result<()> {
     // listening — including the port the operating system chose, where 0 was asked for — and so a
     // window or a browser opened a line later waits in the accept backlog rather than meeting a
     // refusal and drawing its own error page.
-    let bound = runtime.block_on(server::bind(cli.bind()))?;
+    let bound = match runtime.block_on(server::bind(cli.bind())) {
+        Ok(bound) => bound,
+        // **The port being taken is the ordinary way a second double-click arrives**, now that a
+        // file association exists: there is one of these running already, and it is the one with
+        // the window. Hand the list over and stop. Anything else, and any failure to hand over, is
+        // the error it always was.
+        Err(error) => {
+            if let Some(list) = opened_list(&cli)
+                && address_is_taken(&error)
+            {
+                handoff::hand_over(cli.port, &list).with_context(|| {
+                    format!("handing {} to the copy already running", list.display())
+                })?;
+                return Ok(());
+            }
+            return Err(error);
+        }
+    };
     let url = bound.url();
+
+    // A list named on the command line, taken before the page is ever drawn so the first draw
+    // already shows it. Silently nothing where the path is not a file — see `State::open_list`.
+    if let Some(list) = opened_list(&cli) {
+        state.open_list(&list);
+    }
 
     say(&format!("{} is at {url}", server::APP_NAME));
     if cli.lan {
@@ -202,6 +264,10 @@ pub fn run(shell: Shell) -> Result<()> {
         );
     }
 
+    // Cloned before the server takes it: `State` is an `Arc` inside, so this is the same state and
+    // not a copy of it, and the window needs a handle to be woken through.
+    #[cfg(feature = "desktop")]
+    let state_for_window = state.clone();
     let serving = runtime.spawn(server::serve(bound, state));
 
     if will_open_a_browser(shell, &cli)
@@ -215,7 +281,7 @@ pub fn run(shell: Shell) -> Result<()> {
     #[cfg(feature = "desktop")]
     if will_have_a_window(shell, &cli) {
         // Never returns.
-        return desktop::run(&url, runtime);
+        return desktop::run(&url, runtime, state_for_window);
     }
 
     runtime
@@ -235,6 +301,8 @@ fn resolve_data_dir(cli: &Cli) -> Result<PathBuf> {
 
 #[cfg(test)]
 mod tests {
+    use std::path::Path;
+
     use super::*;
     use clap::CommandFactory as _;
 
@@ -254,6 +322,48 @@ mod tests {
             .expect("parses");
         assert_eq!(cli.bind().ip(), IpAddr::V4(Ipv4Addr::UNSPECIFIED));
         assert_eq!(cli.bind().port(), 9000);
+    }
+
+    /// The one positional, which is what a file association hands over.
+    ///
+    /// **A path is not mistaken for a flag and a flag is not mistaken for a path**: a shell
+    /// association passes the file and nothing else, and the two must still be told apart when
+    /// somebody runs this from a prompt with both. `debug_assert` above covers the definition being
+    /// well formed; this covers what it actually parses.
+    #[test]
+    fn a_list_is_the_one_thing_this_takes_without_a_flag_in_front_of_it() {
+        let cli = Cli::try_parse_from(["km-video-downloader"]).expect("parses");
+        assert_eq!(
+            cli.list, None,
+            "nothing is opened unless something is named"
+        );
+
+        let opened = r"C:\Users\Someone\My Songs\anime.kmvf";
+        let cli = Cli::try_parse_from(["km-video-downloader", opened]).expect("parses");
+        assert_eq!(cli.list.as_deref(), Some(Path::new(opened)));
+
+        let cli =
+            Cli::try_parse_from(["km-video-downloader", "--browser", "list.kmvf"]).expect("parses");
+        assert!(cli.browser);
+        assert_eq!(cli.list.as_deref(), Some(Path::new("list.kmvf")));
+    }
+
+    /// A bind that failed because the port is taken is told from one that failed for any other
+    /// reason, and it is told from the *source* rather than from the sentence wrapped around it.
+    ///
+    /// This is what decides whether a second double-click hands its list over or reports an error,
+    /// and matching on `bind`'s wording would break silently the day that wording improves.
+    #[test]
+    fn a_taken_port_is_recognised_through_the_sentence_wrapped_around_it() {
+        let taken = anyhow::Error::new(std::io::Error::from(std::io::ErrorKind::AddrInUse))
+            .context("cannot listen on 127.0.0.1:8181. Is something already using it?");
+        assert!(address_is_taken(&taken));
+
+        let denied = anyhow::Error::new(std::io::Error::from(std::io::ErrorKind::PermissionDenied))
+            .context("cannot listen on 127.0.0.1:80. Is something already using it?");
+        assert!(!address_is_taken(&denied));
+
+        assert!(!address_is_taken(&anyhow::anyhow!("no config directory")));
     }
 
     #[test]

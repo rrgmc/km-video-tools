@@ -59,8 +59,24 @@
   <div class="sources">
     <label class="field">
       <span>&hellip;or a file of them</span>
-      <input type="file" name="list" accept=".txt,text/plain">
+      <input type="file" name="list" accept=".kmvf,.txt,text/plain">
     </label>
+
+    {# The list this program was opened with, where it is not the one below. Opening a list moves
+       the folder to that list's folder, so the two are usually the same file and only one row is
+       drawn — see views::page. #}
+    {% match opened_list %}
+    {% when Some with (list) %}
+    <label class="check">
+      <input type="checkbox" name="opened_list" value="{{ list }}" checked>
+      <span>
+        The {{ opened_list_count }} link{% if opened_list_count != 1 %}s{% endif %} in the list you
+        opened
+        <small>{{ list }}</small>
+      </span>
+    </label>
+    {% when None %}
+    {% endmatch %}
 
     {% match own_list %}
     {% when Some with (list) %}

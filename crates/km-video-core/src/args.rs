@@ -770,7 +770,13 @@ mod tests {
     #[test]
     fn nothing_this_program_writes_for_itself_is_a_file_a_double_click_would_open() {
         assert!(BATCH_NAME.ends_with(EXTENSION));
-        for name in [ASKED_NAME, SINGLES_NAME, PLAYLISTS_NAME, RECORDS_NAME, ARCHIVE_NAME] {
+        for name in [
+            ASKED_NAME,
+            SINGLES_NAME,
+            PLAYLISTS_NAME,
+            RECORDS_NAME,
+            ARCHIVE_NAME,
+        ] {
             assert!(
                 !name.ends_with(EXTENSION),
                 "{name} is scratch and must not look like a document"
