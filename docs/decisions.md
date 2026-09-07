@@ -3,11 +3,11 @@
 Why things here are the way they are. A decision is authoritative over anything else in this
 repository that disagrees with it; where the two conflict, the other one is out of date.
 
-## The repository exists so that karaokemachine has no downloader in it
+## The repository exists so that the karaoke app has no downloader in it
 
 `km-video-fetch` was `tools/cmd/km-video-fetch` inside
-[karaokemachine](https://github.com/rrgmc/karaokemachine) and is the one thing there that reached the
-network for song material.
+[the karaoke app](https://github.com/rrgmc/karaokemachine) and is the one thing there that reached
+the network for song material.
 
 **The line is between what a person asks for and what a machine decides to do on its own**, and this
 tool has always been on the asked-for side: it runs yt-dlp against what somebody points it at and
@@ -23,7 +23,7 @@ third-party copyrighted works. That is a matter for whoever runs the download ra
 repository, which is why the rule is **do not do it for anybody** rather than *do not be in that
 business*.
 
-## The packaging profile is copied, and karaokemachine's is authoritative
+## The packaging profile is copied, and the karaoke app's is authoritative
 
 `crates/km-video-core/src/profile.rs` is a copy of `tools/cmd/km-pack/src/profile.rs` over there.
 
@@ -43,7 +43,7 @@ the only blocking finding — and they have not moved since they were written.
 
 ## A file is read with `ffprobe`, not with `ffmpeg-next`
 
-A second implementation of what karaokemachine's `km_video::probe` does, deliberately.
+A second implementation of what the karaoke app's `km_video::probe` does, deliberately.
 
 **The subprocess costs nothing that is not already spent.** ffmpeg is a hard requirement of this tool
 either way: yt-dlp muxes with it, and `--normalize` re-encodes with it. `ffprobe` ships in the same
@@ -59,7 +59,7 @@ choosing the picture stream rather than the cover art, and looking tags up case-
 
 ## The check is no longer optional
 
-In karaokemachine the whole check-and-normalize half sat behind a default-off `video` feature,
+In the karaoke app the whole check-and-normalize half sat behind a default-off `video` feature,
 because reaching the profile meant linking ffmpeg. A build without the feature downloaded exactly as
 well and simply could not say whether what landed was playable.
 
@@ -389,9 +389,9 @@ meaningful change is about twice a second. The polling version is a template and
 
 ## The page is light, and says so
 
-Its models in karaokemachine — `km-package-builder`, `km-admin`, the machine's own screen — are dark,
-because they sit beside an appliance in a dark room. This is a tool used at a desk in the daytime and
-it belongs to a different repository, so it leads with white.
+Its models in the karaoke app — `km-package-builder`, `km-admin`, the machine's own screen — are
+dark, because they sit beside an appliance in a dark room. This is a tool used at a desk in the
+daytime and it belongs to a different repository, so it leads with white.
 
 **`color-scheme: light` is declared, and is not `light dark`.** A scheme left open lets the browser
 draw form controls from the other one, which is how a light page ends up with dark dropdowns. There
@@ -401,7 +401,7 @@ is no `prefers-color-scheme` block: this program has one appearance and states i
 
 **This reverses the first decision made about it**, which was that a browser tab would be the whole
 user interface — on the grounds that km-admin's `desktop` feature wants `km-tray`, `km-console`,
-`km-osopen` and `km-logfile`, all karaokemachine crates. That was true of two of them and wrong
+`km-osopen` and `km-logfile`, all the karaoke app's crates. That was true of two of them and wrong
 about what it cost: double-clicking the executable opened a console showing an address, which is not
 an application. Of the four, the tray is genuinely optional, `opener.rs` replaces one in fifteen
 lines, and the console shim is replaced by [`say`] not being `println!` (below).
@@ -413,7 +413,7 @@ load time, so a build carrying the feature does not *start* there — a failure 
 before `main`, that no flag can rescue.
 
 The window is a **webview over the page this same process is serving**, which is the arrangement all
-three of karaokemachine's do: one set of templates answers for the window and for a browser tab
+three of the karaoke app's do: one set of templates answers for the window and for a browser tab
 alike, so there is never a second front end to keep in step. `--browser` asks for the tab.
 
 ## `println!` is a crash in a GUI-subsystem executable
@@ -458,7 +458,7 @@ module that did not have it.
 
 ## The icon is the same drawing under a fifth palette
 
-Angular bands, a near-black plate, `KM` with a coloured M: karaokemachine's mark, because these
+Angular bands, a near-black plate, `KM` with a coloured M: the karaoke app's mark, because these
 programs are run beside its and belong to it. **A vermilion lead**, chosen by hue distance rather
 than by taste: its four sit at 45°, 148°, 196° and 324°, and this is 11° — 34° clear of the
 nearest. The first attempt, a cyan at 180°, was 16° from the package builder's blue, which is
@@ -523,7 +523,7 @@ against it, so the pin is imposed on nobody but whoever works on it.
 **What the floating channel cost was not reproducibility in the abstract.** `task lint` is clippy
 with `-D warnings`, so a lint introduced upstream on a Tuesday fails a branch that changed nothing
 relevant, and "passes locally" means only "passes on whatever this machine last fetched". It also
-broke outright: `rust-version` was inherited from karaokemachine's pin at 1.98.1 while `stable` on
+broke outright: `rust-version` was inherited from the karaoke app's pin at 1.98.1 while `stable` on
 the machine was still 1.98.0, and every cargo command in the workspace refused before it compiled
 anything. A pin is what makes those two numbers one decision instead of a race.
 
@@ -535,7 +535,7 @@ the one copy that no format lets us derive, and `tools/dev/check-toolchain-pin.s
 `task check` runs — fails naming a disagreement, a floating channel, or a returning `dtolnay` step.
 
 The cost is that a bump is now a commit rather than a `rustup update`. That is the trade
-karaokemachine made first, and its arrangement is what this copies.
+the karaoke app made first, and its arrangement is what this copies.
 
 ## `dist/` is output, and nothing else writes there
 
@@ -591,7 +591,7 @@ the `SH` variable exists to serve, and looked fine in the one it does not need t
 
 All three clean tasks are `tools/dist/clean.sh` now. The Taskfile chooses which script to run, which
 is what it already did for staging, and the deleting happens where coreutils exist. Inherited from
-karaokemachine, which hit this first and whose `clean:old` this one is a port of.
+the karaoke app, which hit this first and whose `clean:old` this one is a port of.
 
 **`--old` has no special cases, and that is the property to keep.** An entry is removed only when its
 name begins with its app's own name followed by a version that is not the wanted one, so anything
@@ -620,6 +620,6 @@ Windows.
 
 ## Nothing committed describes the machine it was written on
 
-Inherited from karaokemachine and worth keeping: **no tracked file names a local drive or folder, a
+Inherited from the karaoke app and worth keeping: **no tracked file names a local drive or folder, a
 home LAN address, personal hardware, or a person** — not in prose, not in a comment, not as test
 data. A sample is invented; a reproduction step names a variable.
