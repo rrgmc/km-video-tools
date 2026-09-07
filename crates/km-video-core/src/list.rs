@@ -170,6 +170,22 @@ pub fn line_of(entry: &Entry) -> String {
     line
 }
 
+/// Writes a list of links out for yt-dlp, one per line and **markers stripped**.
+///
+/// The counterpart of [`write`], and the difference is the whole reason both exist. `write` is for a
+/// list this tool will read again — the markers are the point of it. This one is for a list *yt-dlp*
+/// will read, by which time the markers have already been spent deciding which run this is: yt-dlp
+/// has no idea what `--playlist` at the front of a line means and would take the whole line as a URL,
+/// which fails as `is not a valid URL` on a line that named a perfectly good one.
+pub fn write_urls(path: &Path, entries: &[Entry]) -> Result<()> {
+    let text: String = entries
+        .iter()
+        .map(|entry| entry.url.clone() + "\n")
+        .collect();
+    std::fs::write(path, text)?;
+    Ok(())
+}
+
 /// The links a block of text holds, in the order it holds them, the first mention of each winning.
 ///
 /// **First mention rather than last**, because a list is read top to bottom and the thing said first
@@ -196,6 +212,11 @@ pub fn read(path: &Path) -> Vec<Entry> {
 ///
 /// **Not `Vec::dedup`**, which drops only *consecutive* equals and so lets a link present in two of
 /// the sources through twice.
+///
+/// **A link is the same link only where it is going to the same place.** The same video named for
+/// two folders is two files and was asked for twice on purpose — that is what asking for two folders
+/// means — so the destination is half of what makes a duplicate a duplicate. Two lines naming it for
+/// the *same* folder are a duplicate whatever else they say, and the first of them wins.
 #[must_use]
 pub fn merge(sources: &[&str]) -> Vec<Entry> {
     let mut all: Vec<Entry> = Vec::new();
@@ -204,7 +225,10 @@ pub fn merge(sources: &[&str]) -> Vec<Entry> {
             let Some(entry) = read_entry(line) else {
                 continue;
             };
-            if !all.iter().any(|already| already.url == entry.url) {
+            if !all
+                .iter()
+                .any(|already| already.url == entry.url && already.out == entry.out)
+            {
                 all.push(entry);
             }
         }
@@ -314,14 +338,67 @@ mod tests {
         assert_eq!(entries[1].url, "https://example.invalid/b");
     }
 
+    /// The list yt-dlp is handed is not the list this tool reads. Found by running it: a generated
+    /// file written with its markers on made yt-dlp report
+    /// `'--playlist https://…' is not a valid URL` for a line that named a perfectly good one.
+    #[test]
+    fn the_list_handed_to_yt_dlp_has_the_markers_taken_off_again() {
+        let dir = std::env::temp_dir().join("km-video-list-urls");
+        std::fs::create_dir_all(&dir).expect("a folder to write in");
+        let path = dir.join("urls.txt");
+
+        write_urls(
+            &path,
+            &[
+                Entry {
+                    url: "https://example.invalid/a".to_owned(),
+                    expand: Some(true),
+                    out: Some("anime".to_owned()),
+                },
+                Entry::plain("https://example.invalid/b"),
+            ],
+        )
+        .expect("write the list");
+
+        assert_eq!(
+            std::fs::read_to_string(&path).unwrap(),
+            "https://example.invalid/a\nhttps://example.invalid/b\n"
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The same video in two folders is two files, and was asked for twice on purpose — which is
+    /// what asking for two folders means. So a destination is half of what makes a duplicate.
+    #[test]
+    fn the_same_link_for_two_folders_is_two_things_to_fetch() {
+        let entries = entries_in(
+            "https://example.invalid/a\n\
+             --out anime https://example.invalid/a\n\
+             --out anime https://example.invalid/a\n",
+        );
+        assert_eq!(entries.len(), 2, "two folders, not three lines");
+        assert_eq!(entries[0].out, None);
+        assert_eq!(entries[1].out.as_deref(), Some("anime"));
+    }
+
+    /// Two lines naming one link for one folder are one thing to fetch, and the first of them says
+    /// what it is: a list is read top to bottom, and the alternative makes a link's meaning depend
+    /// on how far down the file the reader has got.
     #[test]
     fn a_repeated_link_keeps_the_first_thing_said_about_it() {
         let entries = entries_in(
-            "--out anime https://example.invalid/a\n\
-             --playlist https://example.invalid/a\n",
+            "--playlist https://example.invalid/a\n\
+             --no-playlist https://example.invalid/a\n",
         );
         assert_eq!(entries.len(), 1, "asked for once");
-        assert_eq!(entries[0].out.as_deref(), Some("anime"));
+        assert_eq!(entries[0].expand, Some(true));
+
+        let entries = entries_in(
+            "--out anime https://example.invalid/a\n\
+             --playlist --out anime https://example.invalid/a\n",
+        );
+        assert_eq!(entries.len(), 1, "and the same folder is the same folder");
         assert_eq!(entries[0].expand, None);
     }
 

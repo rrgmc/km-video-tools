@@ -445,7 +445,10 @@ fn runs(plan: &args::Plan) -> Result<Vec<args::Plan>> {
             };
             let path = out.join(name);
             std::fs::create_dir_all(out).with_context(|| format!("creating {}", out.display()))?;
-            list::write(&path, lines).with_context(|| format!("writing {}", path.display()))?;
+            // Markers stripped: they have already been spent deciding which run this is, and yt-dlp
+            // would take one at the front of a line as part of the URL it was given.
+            list::write_urls(&path, lines)
+                .with_context(|| format!("writing {}", path.display()))?;
             plans.push(args::Plan {
                 targets: Vec::new(),
                 from_file: Some(path),
@@ -765,7 +768,8 @@ mod tests {
         );
         assert_eq!(
             std::fs::read_to_string(dir.join(args::PLAYLISTS_NAME)).unwrap(),
-            "--playlist https://example.invalid/list\n"
+            "https://example.invalid/list\n",
+            "the marker is spent by now, and yt-dlp would read it as part of the URL"
         );
 
         let _ = std::fs::remove_dir_all(&dir);
