@@ -236,6 +236,10 @@ fn plural(count: usize, one: &str, many: &str) -> String {
 /// over that many at once. It lands in the output folder under a name a person will recognise if an
 /// interrupted run ever leaves one behind.
 ///
+/// **Scratch, and taken away again when the fetch is over.** `fetch::fetch` removes it — see the
+/// `Scratch` there, which knows this name. It used not to, and a folder of songs collected one of
+/// these per download.
+///
 /// **Written through [`list::write`]**, so a line that said which it was or where it went says so
 /// again in the file. The page parses the markers only to carry them: what acts on them is
 /// [`fetch::fetch`], reading this file back. One path in, rather than a second way to say the same
