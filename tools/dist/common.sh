@@ -101,3 +101,118 @@ dist_zip() { # <parent dir> <folder name>
   fi
   echo "dist: wrote $parent/$name.zip"
 }
+
+# A path in the form a Windows program will understand, for the one case Git Bash cannot help with:
+# an argument that is a path but does not look like one to the shell.
+#
+# `MSYS2_ARG_CONV_EXCL` stops the mangling for the argument as a whole; this is what makes what is
+# left of it correct, turning `/c/prog/...` into `C:/prog/...`. Both are needed to hand a path to
+# ISCC.exe through a `/D` define, and neither is needed anywhere else.
+host_path() { # <path>
+  if command -v cygpath >/dev/null 2>&1; then cygpath -m "$1"; else printf '%s' "$1"; fi
+}
+
+# -- the document an installed build gets ----------------------------------------------------------
+#
+# **The one README this file writes, and the exception to the rule that it writes none.** The two in
+# tools/dist/cmd.sh describe a folder somebody unpacked, they differ in every word, and a shared one
+# with six substitutions would be worse than two honest ones.
+#
+# This is not one of those. It is what an *installed* build gets, it has exactly two callers -- the
+# Windows setup program and the macOS one -- and what those two have to agree about is facts rather
+# than prose. Two installers describing how to remove the same product differently is what one copy
+# prevents, and it is invisible when it happens, because nobody opens an installed README until
+# something has already gone wrong.
+dist_installed_readme() { # <windows|macos>
+  cat <<'HEAD'
+KM Video Tools
+==============
+
+Two programs for getting karaoke video songs onto disk, in the shape a karaoke package wants them:
+
+  KM Video Downloader   The window. Set a folder once, paste the links or pick a file of
+                        them, press Fetch, and watch it happen.
+
+  km-video-fetch        The same fetch on the command line, for a script or a shell.
+
+They are the same program twice and differ only in whether the progress becomes lines or a bar.
+
+What you need beside them
+-------------------------
+
+**yt-dlp**, and it is not installed by this setup. It is the thing that does the downloading; these
+programs are the selector, the tags and the check around it. Get it from
+https://github.com/yt-dlp/yt-dlp and put it on your PATH.
+
+A copy more than a few months old fails in ways that look like a broken network, because the sites
+move and yt-dlp follows them. Both programs print the version they found and say so when it is stale.
+
+**ffprobe**, if you want the check on what arrived. It comes with ffmpeg, from https://ffmpeg.org.
+Without it the download still happens; only the "is this actually playable" answer is missing.
+
+HEAD
+
+  case "$1" in
+    windows)
+      cat <<'WINDOWS'
+Where it is
+-----------
+
+This was installed for your account only, under
+
+  %LOCALAPPDATA%\Programs\KM Video Tools
+
+so it needed no administrator password and it is not visible to other accounts on this computer.
+
+If you ticked the PATH box, `km-video-fetch` can be typed in any new console window. A console that
+was already open when you installed will not have it -- open a new one.
+
+Removing it
+-----------
+
+Settings, then Apps, then Installed apps: find "KM Video Tools" and choose Uninstall. There is also
+an entry in the Start menu folder. The uninstaller takes the PATH entry back out.
+
+**Your videos are not touched.** Neither is the download folder you chose, wherever you put it.
+Settings live in %APPDATA%\km-video-downloader and are left alone too; delete that folder by hand if
+you want them gone.
+
+A note on the warning you may have seen
+---------------------------------------
+
+This setup program is not signed with a purchased certificate, so Windows SmartScreen shows
+"Windows protected your PC" the first time it runs. More info, then Run anyway, is the way past it.
+WINDOWS
+      ;;
+    macos)
+      cat <<'MACOS'
+Where it is
+-----------
+
+KM Video Downloader is in /Applications, and km-video-fetch is in /usr/local/km-video-tools with a
+symlink in /usr/local/bin -- which is already on your PATH, so there is nothing to add to a .zshrc
+and nothing was added to one.
+
+Removing it
+-----------
+
+Drag KM Video Downloader from /Applications to the Trash, and delete /usr/local/km-video-tools and
+the /usr/local/bin/km-video-fetch symlink. The second needs an administrator password, the same one
+the install asked for.
+
+**Your videos are not touched.** Neither is the download folder you chose. Settings live in
+~/Library/Application Support/km-video-downloader and are left alone too.
+
+A note on the warning you may have seen
+---------------------------------------
+
+This package is not signed with a Developer ID, so Gatekeeper refuses it on a first double-click.
+Control-click the .pkg and choose Open, or allow it under System Settings, Privacy & Security.
+MACOS
+      ;;
+    *)
+      echo "dist: no installed README is written for $1" >&2
+      return 1
+      ;;
+  esac
+}

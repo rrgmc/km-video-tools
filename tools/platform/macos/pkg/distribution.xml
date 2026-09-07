@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The Installer's own description of the package: what it is called, what it offers and where the
+  two halves go. tools/platform/macos/installer.sh substitutes @VERSION@ and @ARCHS@ into a copy of
+  this and hands the copy to productbuild; this file is never used as it stands.
+
+  `customize="always"` because there are two components and one of them is a command line most
+  people will not want — an installer that never shows the choice is one that installed something
+  nobody asked for.
+
+  `require-scripts="true"` is a promise the postinstall keeps by never failing: it symlinks
+  km-video-fetch into /usr/local/bin, and a broken symlink is not a reason to fail an install that
+  has already put both programs where they belong.
+
+  `rootVolumeOnly="true"` because both destinations are system-wide: /Applications and /usr/local.
+  There is no per-user install to offer, and offering one would fail at the copy rather than land
+  somewhere smaller.
+-->
+<installer-gui-script minSpecVersion="2">
+  <title>KM Video Tools</title>
+  <organization>com.rrgmc</organization>
+
+  <options customize="always" require-scripts="true" rootVolumeOnly="true" hostArchitectures="@ARCHS@"/>
+
+  <!-- 11.0 is what the wry/tao stack needs. Stated here and asserted by installer.sh against the
+       same number in the build, so the two cannot drift into an install that succeeds and then
+       cannot open a window. -->
+  <volume-check>
+    <allowed-os-versions>
+      <os-version min="11.0"/>
+    </allowed-os-versions>
+  </volume-check>
+
+  <welcome file="welcome.html" mime-type="text/html"/>
+  <conclusion file="conclusion.html" mime-type="text/html"/>
+  <license file="LICENSE-MIT" mime-type="text/plain"/>
+
+  <choices-outline>
+    <line choice="downloader"/>
+    <line choice="fetch"/>
+  </choices-outline>
+
+  <choice id="downloader" title="KM Video Downloader" visible="true" start_selected="true"
+          description="The window. Set a folder once, paste the links, press Fetch. Goes into /Applications.">
+    <pkg-ref id="com.rrgmc.km-video-tools.downloader"/>
+  </choice>
+
+  <choice id="fetch" title="km-video-fetch" visible="true" start_selected="true"
+          description="The same fetch on the command line. Goes into /usr/local/km-video-tools, with a symlink in /usr/local/bin so it can be typed.">
+    <pkg-ref id="com.rrgmc.km-video-tools.fetch"/>
+  </choice>
+
+  <pkg-ref id="com.rrgmc.km-video-tools.downloader" version="@VERSION@">km-video-tools-downloader.pkg</pkg-ref>
+  <pkg-ref id="com.rrgmc.km-video-tools.fetch" version="@VERSION@">km-video-tools-fetch.pkg</pkg-ref>
+</installer-gui-script>

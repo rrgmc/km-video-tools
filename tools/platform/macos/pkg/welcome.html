@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<!--
+  **The doctype above is load-bearing and must stay on the first line.** Installer sniffs the file's
+  data to decide whether it is HTML or plain text, and a file starting with a comment fails that
+  sniff -- the pane is then shown as raw markup, this comment included, and `mime-type="text/html"`
+  in the Distribution does not rescue it. Cheap to get wrong, so it is asserted in installer.sh.
+
+  No substitution happens in this file, deliberately: the two panes say nothing that changes between
+  builds, so there is no template, no marker, and no chance of a marker being replaced in the wrong
+  place.
+-->
+<html>
+<head><meta charset="utf-8"></head>
+<body style="font-family: -apple-system, sans-serif; font-size: 13px;">
+
+<p>This installs <b>KM Video Tools</b>: two programs for getting karaoke video songs onto disk, in
+the shape a karaoke package wants them.</p>
+
+<ul>
+  <li><b>KM Video Downloader</b> — the window. Set a folder once, paste the links or pick a file of
+      them, press Fetch, and watch it happen. It goes into <code>/Applications</code>.</li>
+  <li><b>km-video-fetch</b> — the same fetch on the command line. It goes into
+      <code>/usr/local/km-video-tools</code>, with a symlink in <code>/usr/local/bin</code>, which is
+      already on your <code>PATH</code>. Nothing is added to a <code>.zshrc</code>.</li>
+</ul>
+
+<p>You can install either one on its own on the next page.</p>
+
+<p><b>Neither of them does the downloading.</b> That is <code>yt-dlp</code>, which this installer
+does not include and does not fetch — these programs are the selector, the tags and the check around
+it. Install it separately from
+<code>https://github.com/yt-dlp/yt-dlp</code>, or with Homebrew: <code>brew install yt-dlp</code>.
+Add <code>ffmpeg</code> too if you want the check on whether what arrived is actually playable.</p>
+
+<p><b>This package is not signed with a Developer ID.</b> If macOS refused to open it on a
+double-click, Control-click the <code>.pkg</code> and choose Open, or allow it under System
+Settings → Privacy &amp; Security.</p>
+
+<p>It asks for your administrator password once, for those two directories, and reaches the network
+at no point.</p>
+
+</body>
+</html>

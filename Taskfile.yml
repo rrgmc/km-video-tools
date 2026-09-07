@@ -37,6 +37,10 @@ vars:
   SH:
     sh: '{{if eq OS "windows"}}p=$(git --exec-path); echo "${p%/mingw*}/bin/bash.exe"{{else}}echo bash{{end}}'
 
+  # Set on the command line: `task dist:setup VERBOSE=1`. Declared here so that `{{if .VERBOSE}}` is
+  # false rather than an error when nothing was passed.
+  VERBOSE: ''
+
 tasks:
   default:
     desc: What `task check` does, without running it
@@ -99,6 +103,34 @@ tasks:
     desc: The same, plus a versioned .zip of each folder
     cmds:
       - '"{{.SH}}" tools/dist/cmd.sh --zip {{.CLI_ARGS}}'
+
+  # The setup program, which is a carrier rather than a folder: one installer holding both programs,
+  # with a checkbox for each. The fan-out is not an `if`: both arms are called unconditionally and the
+  # one whose `platforms:` does not match the host is skipped rather than failed, so exactly one runs.
+  #
+  # **Not part of `task dist`**, because both arms run tools/dist/cmd.sh themselves and folding them
+  # in would stage every program twice. `task dist:setup -- --no-build` is the fast path when
+  # something has already staged.
+  dist:setup:
+    desc: "Build this platform's setup program -- one installer, both programs (VERBOSE=1)"
+    cmds:
+      - task: dist:setup:windows
+      - task: dist:setup:macos
+
+  dist:setup:windows:
+    internal: true
+    platforms: [windows]
+    cmds:
+      - '"{{.SH}}" tools/platform/windows/installer.sh {{if .VERBOSE}}--verbose{{end}} {{.CLI_ARGS}}'
+
+  # `--install` is the one flag worth knowing and it has no variable, deliberately: it installs into
+  # /Applications and /usr/local for real, asks for an administrator password and then removes it
+  # again, so it should be typed rather than set. `task dist:setup -- --install`.
+  dist:setup:macos:
+    internal: true
+    platforms: [darwin]
+    cmds:
+      - '"{{.SH}}" tools/platform/macos/installer.sh {{if .VERBOSE}}--verbose{{end}} {{.CLI_ARGS}}'
 
   clean:
     desc: Remove the staged output in dist/, leaving target/ alone
