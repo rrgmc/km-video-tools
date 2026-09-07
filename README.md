@@ -178,9 +178,12 @@ it, so removing the application removes the association with it. It needs nothin
 in the base system, and asks for your administrator password once.
 
 Both **round-trip themselves on every build** — install into a scratch location, run each program,
-uninstall, and assert nothing was left behind. The Windows one installs the association too and reads
-the keys back with `reg.exe`, which is the only way to catch a `[Registry]` entry Inno skipped: a
-mistyped condition would otherwise produce a clean build and an installer that associates nothing.
+uninstall, and assert nothing was left behind. **Each also proves its own half of the association**,
+because neither platform fails a build that quietly associates nothing. The Windows one installs it
+and reads the keys back with `reg.exe`, which is the only way to catch a `[Registry]` entry Inno
+skipped; the macOS one reads the document types out of the packaged bundle's `Info.plist` — that the
+type it declares is the type it opens, that it names exactly one extension, and that the extension is
+the one reported rather than a second copy typed into the check.
 
 Both are **unsigned**, so a recipient meets SmartScreen or Gatekeeper on a first run; the fix for
 that is a purchased certificate rather than a build step. Neither installer touches your downloaded

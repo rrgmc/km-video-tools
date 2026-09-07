@@ -221,6 +221,55 @@ alternatives to be chosen between.
 since opening one moves the folder to where it sits. Two rows would be this program offering the same
 file twice, under two names, with two counts to reconcile.
 
+## Each setup program proves its own half of the association
+
+Neither platform fails a build that associates nothing, and the two fail silently in the same way for
+different reasons: Inno reports nothing about a `[Registry]` entry a mistyped condition skipped, and
+`documents()` writes the macOS keys through a heredoc nested inside another heredoc, where a slip
+yields a package that installs cleanly and an application LaunchServices files under nothing at all.
+In both cases the first person to find out is somebody double-clicking a list.
+
+So the Windows driver reads its keys back with `reg.exe` and the macOS driver reads the document types
+out of `Info.plist` with `plutil`. **Out of the Payload, not out of the staging directory**, which is
+the whole point of reading anything back: what is proved has to be what somebody receives, and a
+correct staged bundle beside a wrong archive is exactly the failure the round trip is for.
+
+Four things are asserted, and each is one that can be wrong on its own: the plist parses at all; the
+type the bundle *declares* and the type its document entry *opens* are the same string, a mismatch
+being the macOS shape of an extension registered to a ProgId with no command behind it; there is
+exactly one filename extension; and `LSHandlerRank` is `Owner` beside a `CFBundleIdentifier` for
+LaunchServices to file the declaration under. **The extension is read rather than repeated** — one
+place decides it for this platform, and a copy typed into the check would agree with that place right
+up until the day it did not. The Windows driver reads its own out of the `.iss` for the same reason.
+
+**And the assertions were watched to fail.** Each was tried against a deliberately broken
+`documents()` — a mismatched identifier, a dropped tag specification, an unbalanced tag — because a
+check that has never been seen to refuse anything is not known to check anything.
+
+## The bundle states the macOS floor, and two files agree about it
+
+`11.0` — what the wry/tao stack needs — used to live only in `distribution.xml`, which binds a `.pkg`
+install and nothing else. But that is one of two ways this is handed over; the other is the staged
+folder, and a bundle without `LSMinimumSystemVersion` dropped on an older Mac fails in the dynamic
+loader before `main`, which is the same failure with none of the explanation.
+
+So the bundle states it too, out of `common.sh`'s `dist_min_macos`. Neither copy can be derived from
+the other — one is an XML attribute `productbuild` reads, the other a plist key LaunchServices reads —
+so what is left is what `rust-toolchain.toml` and `Cargo.toml` already do here: state it twice and
+refuse a build where the two disagree.
+
+## The macOS installer's conclusion pane is where a GUI-only install reads
+
+`dist_installed_readme macos` is written into the **fetch** component's payload, and that is correct
+— it lands in `/usr/local/km-video-tools` beside the program it describes. The consequence is that
+somebody who unticks `km-video-fetch` installs no README anywhere and never reads a word of it.
+
+**Not fixed by putting one beside the application.** A loose `README.txt` in `/Applications` is
+against the platform, and inside the bundle it is a file nobody opens. The Installer's own conclusion
+pane is what a GUI-only install actually reads, so that is where the association is explained — and
+the welcome pane says it is coming, since Windows offers it as a visible tick and macOS offers no
+moment at all.
+
 ## The whole fetch is a library function that narrates
 
 `km_video_core::fetch::fetch(&Request, on_event)` runs the sequence — preflight, argv, spawn, read

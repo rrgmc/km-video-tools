@@ -41,7 +41,7 @@
   </choices-outline>
 
   <choice id="downloader" title="KM Video Downloader" visible="true" start_selected="true"
-          description="The window. Set a folder once, paste the links, press Fetch. Goes into /Applications.">
+          description="The window. Set a folder once, paste the links, press Fetch. Goes into /Applications, and opens .kmvf lists of links on a double-click.">
     <pkg-ref id="com.rrgmc.km-video-tools.downloader"/>
   </choice>
 

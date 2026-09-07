@@ -45,6 +45,18 @@ dist_exe_ext() { # [triple, default: this host]
   case "${1:-$(dist_host_triple)}" in *windows*) printf '.exe' ;; *) printf '' ;; esac
 }
 
+# The oldest macOS a build of this can be handed to, which is what the wry/tao stack needs.
+#
+# **Two places state it and one of them checks.** This is the number `tools/dist/cmd.sh` writes into
+# a bundle's `LSMinimumSystemVersion`; `tools/platform/macos/pkg/distribution.xml` states the same
+# floor for the installer, in an XML attribute no script can derive it from, and
+# `tools/platform/macos/installer.sh` fails on a disagreement. Two statements and an assertion is
+# the arrangement `rust-toolchain.toml` and `Cargo.toml` already have here, for the same reason: a
+# number in two files is a drift waiting to happen unless something reads both.
+dist_min_macos() { # -> prints the minimum macOS version
+  printf '11.0'
+}
+
 # The one place the layout is written down:
 #
 #   dist/<app>/<platform>/<app>-<version>-<triple>/

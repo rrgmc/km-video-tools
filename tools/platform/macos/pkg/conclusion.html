@@ -17,6 +17,11 @@
       not have found it yet.</li>
 </ul>
 
+<p><b>Double-clicking a <code>.kmvf</code> list of links</b> opens KM Video Downloader with that
+list filled in and the folder set to the one the list is in. Nothing is fetched until you press
+Fetch, and a second list opened while the window is up goes to that window rather than starting a
+second copy.</p>
+
 <p><b>Before the first download, install <code>yt-dlp</code></b> if you have not already —
 <code>brew install yt-dlp</code>, or from <code>https://github.com/yt-dlp/yt-dlp</code>. Both
 programs print the version they found and say so when it is too old, which is the failure that
@@ -25,7 +30,8 @@ otherwise looks like a broken network.</p>
 <p><b>Where things are, if you want them gone later:</b></p>
 
 <ul>
-  <li>The application: <code>/Applications/KM Video Downloader.app</code> — drag it to the Trash.</li>
+  <li>The application: <code>/Applications/KM Video Downloader.app</code> — drag it to the Trash.
+      That takes the <code>.kmvf</code> association with it; nothing else has to be undone.</li>
   <li>The command line: <code>/usr/local/km-video-tools</code> and the symlink
       <code>/usr/local/bin/km-video-fetch</code> — deleting those needs the same administrator
       password the install asked for.</li>
