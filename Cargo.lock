@@ -1456,7 +1456,7 @@ dependencies = [
 
 [[package]]
 name = "km-video-core"
-version = "0.1.0"
+version = "1.7.0"
 dependencies = [
  "anyhow",
  "serde",
@@ -1465,7 +1465,7 @@ dependencies = [
 
 [[package]]
 name = "km-video-downloader"
-version = "0.1.0"
+version = "1.7.0"
 dependencies = [
  "anyhow",
  "askama",
@@ -1488,7 +1488,7 @@ dependencies = [
 
 [[package]]
 name = "km-video-fetch"
-version = "0.1.0"
+version = "1.7.0"
 dependencies = [
  "anyhow",
  "clap",

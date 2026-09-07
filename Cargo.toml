@@ -8,7 +8,7 @@ resolver = "3"
 members = ["crates/*"]
 
 [workspace.package]
-version = "0.1.0"
+version = "1.7.0"
 edition = "2024"
 # The floor, not a pin. There is deliberately no `rust-toolchain.toml`: an exact channel is right for
 # an appliance whose build has to be reproducible, and wrong for a standalone tool other people
