@@ -4,7 +4,7 @@
 
 {# ---- 1. Where the files go ------------------------------------------------------------------ #}
 <section class="panel">
-  <h2>Where the videos go</h2>
+  <h2>Output</h2>
 
   {% if out.is_empty() %}
   <p class="note">Nothing set yet. Type a path below, or browse for one.</p>
@@ -46,20 +46,20 @@
 <form class="panel fetch" hx-post="/fetch" hx-encoding="multipart/form-data"
       hx-target="#job" hx-swap="outerHTML"
       method="post" action="/fetch" enctype="multipart/form-data">
-  <h2>What to fetch</h2>
+  <h2>Source</h2>
 
   <label class="field">
     <span>Links, one per line
       <small>A line may start with <code>--playlist</code>, <code>--no-playlist</code> or
-        <code>--out&nbsp;folder</code> to say what that one is and where it goes. Lines above the
-        first link set the boxes below for the whole list.</small></span>
+        <code>--out&nbsp;folder</code> change global settings for it. Lines above the
+        first link allow setting any command-line argument.</small></span>
     <textarea name="urls" rows="6" spellcheck="false"
               placeholder="https://&hellip;&#10;--playlist https://&hellip;&#10;--out anime https://&hellip;"></textarea>
   </label>
 
   <div class="sources">
     <label class="field">
-      <span>&hellip;or a file of them</span>
+      <span>&hellip;or a file containing links</span>
       <input type="file" name="list" accept=".kmvf,.txt,text/plain">
     </label>
 
@@ -97,13 +97,12 @@
   <div class="options">
     <label class="check">
       <input type="checkbox" name="playlist" {% if playlist %}checked{% endif %}>
-      <span>Download while playlist
-        <small>Off by default.</small></span>
+      <span>Download whole playlist</span>
     </label>
 
     <label class="check">
       <input type="checkbox" name="normalize" {% if normalize %}checked{% endif %}>
-      <span>Re-encode anything outside the profile</span>
+      <span>Re-encode if not matching the standard profile</span>
     </label>
 
     <label class="check">
