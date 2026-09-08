@@ -315,8 +315,8 @@ pub fn line_of(entry: &Entry) -> String {
 
 /// Writes a list of links out for yt-dlp, one per line and **markers stripped**.
 ///
-/// The counterpart of [`write`], and the difference is the whole reason both exist. `write` is for a
-/// list this tool will read again — the markers are the point of it. This one is for a list *yt-dlp*
+/// The counterpart of [`write`]. `write` is for a list this tool will read again — the markers are
+/// the point of it. This one is for a list *yt-dlp*
 /// will read, by which time the markers have already been spent deciding which run this is: yt-dlp
 /// has no idea what `--playlist` at the front of a line means and would take the whole line as a URL,
 /// which fails as `is not a valid URL` on a line that named a perfectly good one.
@@ -778,10 +778,10 @@ mod tests {
     /// One rule, every shape. Written out at length because each of these is a different way of
     /// leaving the folder and a check that caught four of the five would look correct.
     ///
-    /// **Every case here is refused on whichever machine the suite runs on**, which is the point and
-    /// is not what `Component::Normal` gives on its own. Unix splits a path on `/` and nothing else,
-    /// so the four written with backslashes are single ordinary names there and were accepted until
-    /// CI said so. Do not simplify this back to trusting the platform's parser.
+    /// **Every case here is refused on whichever machine the suite runs on**, which is not what
+    /// `Component::Normal` gives on its own. Unix splits a path on `/` and nothing else, so the four
+    /// written with backslashes are single ordinary names there and pass any check that trusts the
+    /// platform's parser. Do not simplify this back to trusting it.
     #[test]
     fn a_destination_is_a_folder_under_the_one_asked_for_and_never_beside_it() {
         let root = Path::new("songs");
@@ -803,8 +803,8 @@ mod tests {
             r"C:\Windows",
             "C:relative",
             r"\\server\share",
-            // One name on Unix and two nested folders on Windows, which is the whole reason the
-            // rule names these characters rather than leaving them to `Component::Normal`.
+            // One name on Unix and two nested folders on Windows, which is why the rule names
+            // these characters rather than leaving them to `Component::Normal`.
             r"anime\openings",
             // An ordinary component to `Path` even on Windows, and an illegal filename to Windows
             // itself: `:` is what opens an alternate data stream.

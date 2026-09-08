@@ -9,16 +9,15 @@
 //! whether what arrived will be copied or re-encoded — a question worth asking at download time,
 //! while the file is still in front of you and re-fetching at a different quality is one command.
 //!
-//! Duplicating it reverses the reason `km-pack` is a library, and the cost was accepted for one
-//! reason: taking the real one meant taking `km-video` with it, and `km-video` is
+//! Duplicating it costs the reason `km-pack` is a library, and the cost is accepted for one
+//! reason: taking the real one means taking `km-video` with it, and `km-video` is
 //! `#![cfg(feature = "ffmpeg")]` over an unconditional audio dependency — so a downloader would link
 //! ffmpeg, need libclang to build, and pull in a synthesizer, all to borrow one plain-data struct
 //! and one `matches!`. [`crate::probe`] is the other half of that trade.
 //!
-//! **Drift is bounded rather than merely hoped for.** The numbers below are anchored to what the
-//! appliance's decoder can draw, which is why the pixel format is the only [`Severity::Blocking`]
-//! finding, and they have not moved since they were written. Where the two disagree, the other one
-//! is right and this one is stale.
+//! **Drift is bounded.** The numbers below are anchored to what the appliance's decoder can draw,
+//! which is why the pixel format is the only [`Severity::Blocking`] finding. Where the two disagree,
+//! the other one is right and this one is stale.
 //!
 //! # Why normalize at all
 //!
@@ -46,8 +45,8 @@
 //! of H.264, 4K instead of 1080p, 60 fps instead of 30. Worth re-encoding for predictability and
 //! disk, and never worth *refusing* over.
 //!
-//! Everything about the **audio** is a preference, and that is a deliberate consequence of how
-//! the machine decodes: it runs a `swresample` context to interleaved stereo `f32`, so every codec,
+//! Everything about the **audio** is a preference, a consequence of how the machine decodes: it
+//! runs a `swresample` context to interleaved stereo `f32`, so every codec,
 //! sample rate and channel count already plays. The profile therefore says nothing about the sample
 //! rate at all — the first real song packaged here is 44.1 kHz, and re-encoding it to 48 would
 //! degrade it to fix a problem that does not exist.

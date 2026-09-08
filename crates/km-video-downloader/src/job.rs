@@ -91,8 +91,8 @@ impl Job {
 
     /// Folds one of [`fetch::fetch`]'s events into what the page shows.
     ///
-    /// **This is the whole of the translation**, and it is the counterpart of the command line's
-    /// `Reporter`: the same events, turned into a bar and a list instead of into lines.
+    /// **This is the whole of the translation**, the counterpart of the command line's `Reporter`:
+    /// the same events, turned into a bar and a list instead of into lines.
     pub fn absorb(&self, event: &fetch::Event) {
         use fetch::Event as E;
         match event {

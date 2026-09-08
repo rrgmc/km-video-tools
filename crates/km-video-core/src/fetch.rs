@@ -546,8 +546,8 @@ struct Scratch(Vec<PathBuf>);
 impl Scratch {
     /// Registers `path` for removal, where it is one of the three names this tool writes itself.
     ///
-    /// **Matched by name, and that is load-bearing rather than convenient.** A `from_file` is just
-    /// as likely to be the `km-video-fetch.kmvf` somebody maintains by hand in that same folder, and
+    /// **Matched by name.** A `from_file` is just as likely to be the `km-video-fetch.kmvf` somebody
+    /// maintains by hand in that same folder, and
     /// deleting a person's list at the end of a successful fetch would be the worst bug this program
     /// could have. Only what it wrote itself may be removed.
     fn writing(&mut self, path: Option<&Path>) {

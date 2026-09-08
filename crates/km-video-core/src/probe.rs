@@ -135,9 +135,8 @@ pub fn probe(path: &Path) -> Result<VideoInfo> {
 
 /// Reads the shape out of one `ffprobe -print_format json` document.
 ///
-/// Split from [`probe`] so the parsing is testable without a file on disk or ffmpeg installed,
-/// which is the whole reason the captured documents in the tests below exist. `path` is used only
-/// in messages.
+/// Split from [`probe`] so the parsing is testable without a file on disk or ffmpeg installed, on
+/// the captured documents the tests below carry. `path` is used only in messages.
 fn info_of(json: &str, path: &Path) -> Result<VideoInfo> {
     let probed: Probed =
         serde_json::from_str(json).with_context(|| format!("reading {}", path.display()))?;

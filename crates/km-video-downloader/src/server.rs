@@ -73,8 +73,8 @@ struct Inner {
     job: Mutex<Option<Arc<Job>>>,
     /// The list this run was handed, where a file association or an argument handed it one.
     ///
-    /// **Not in [`Settings`], and that is the whole distinction**: settings are what somebody meant
-    /// from now on, and this is what they asked for by double-clicking something a minute ago. It
+    /// **Not in [`Settings`]**: settings are what somebody meant from now on, and this is what they
+    /// asked for by double-clicking something a minute ago. It
     /// lasts as long as the process and is written down nowhere.
     opened: Mutex<Option<PathBuf>>,
     /// How to make a window notice that the page under it changed.
@@ -349,9 +349,9 @@ mod tests {
             .status()
     }
 
-    /// No socket is bound anywhere in this module's tests, and that is deliberate rather than
-    /// incidental: on Windows a test binary's path carries a build hash, so a test that listens
-    /// raises a fresh firewall prompt on every rebuild and leaves a dead rule behind.
+    /// No socket is bound anywhere in this module's tests: on Windows a test binary's path carries a
+    /// build hash, so a test that listens raises a fresh firewall prompt on every rebuild and leaves
+    /// a dead rule behind.
     #[tokio::test]
     async fn the_page_and_its_fragments_answer() {
         assert_eq!(get_status("/").await, StatusCode::OK);

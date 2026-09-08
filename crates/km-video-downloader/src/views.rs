@@ -107,10 +107,10 @@ fn page(state: &State) -> Index {
     // a stronger statement than anything remembered — somebody wrote it into that folder — but
     // it is still only what will happen unless the person looking changes it, and the page is
     // where they would. `handlers` then reads the form and nothing folds these in twice; see
-    // `fetch::Request::apply_list_settings` for why that separation is the whole design.
+    // `fetch::Request::apply_list_settings` for that separation.
     //
     // Both lists, in `Form::entries`' order of precedence: the one opened just now beats the
-    // one the folder has always carried.
+    // one the folder carries.
     let asked = [own_list.as_deref(), opened_list.as_deref()]
         .into_iter()
         .flatten()

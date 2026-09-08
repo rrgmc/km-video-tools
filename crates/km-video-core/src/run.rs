@@ -185,12 +185,12 @@ pub enum Flow {
 /// The same contract as [`spawn`] — a non-zero exit is reported rather than raised — and the same
 /// return value. What differs is where yt-dlp's words go: to `on_line` rather than to a terminal.
 ///
-/// **Both pipes are drained, and this is the whole reason the function is not three lines.** A child
-/// whose stderr fills while nothing reads it stops, and so does the parent waiting on it; "the
-/// download hangs on some videos" is not a bug worth discovering later.
+/// **Both pipes are drained.** A child whose stderr fills while nothing reads it stops, and so does
+/// the parent waiting on it; "the download hangs on some videos" is not a bug worth discovering
+/// later.
 ///
-/// The split of labour is the one `profile::transcode` already uses, and it is deliberate rather
-/// than incidental: **stdout is read on this thread** and stderr on a thread of its own that only
+/// The split of labour is the one `profile::transcode` already uses: **stdout is read on this
+/// thread** and stderr on a thread of its own that only
 /// collects. That is what keeps `on_line` off any thread but the caller's — so it need not be
 /// `Send`, and a caller may hand over a closure holding whatever it likes. The price is that
 /// stderr arrives in a block at the end rather than interleaved; with `--newline` in effect

@@ -9,9 +9,8 @@
 //! One thing, mostly: land a file that [`crate::profile::DEFAULT`] already accepts, so packaging
 //! copies its bytes instead of spending an hour re-encoding a picture it can only make worse. That
 //! profile is H.264 in 8-bit 4:2:0, at most 1080p30, with AAC, in MP4 — and a YouTube download asked
-//! for AVC and AAC is exactly that, which is the whole reason the probe-first design in
-//! [`crate::profile`] works at all. Asking for it up front is free; discovering afterwards that
-//! VP9 arrived is not.
+//! for AVC and AAC is exactly that, so the probe-first design in [`crate::profile`] has something to
+//! probe. Asking for it up front is free; discovering afterwards that VP9 arrived is not.
 //!
 //! # Three things deliberately *not* passed
 //!

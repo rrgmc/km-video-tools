@@ -65,11 +65,10 @@ pub enum Shell {
 
 /// Says one line to whoever is listening.
 ///
-/// **Not `println!`, and that is not a style preference — it is a crash.** `std::io::_print` *panics*
-/// on a write failure, with `failed printing to stdout`, and a GUI-subsystem executable on Windows
-/// has a null standard output handle that fails every write. Left as `println!`, every double-click
-/// would abort the process, and it would never once fail when run from a shell, which is where it
-/// would have been tested.
+/// **Not `println!`, which is a crash here.** `std::io::_print` *panics* on a write failure, with
+/// `failed printing to stdout`, and a GUI-subsystem executable on Windows has a null standard output
+/// handle that fails every write. Left as `println!`, every double-click aborts the process, and it
+/// never once fails when run from a shell, which is where it would be tested.
 ///
 /// The error is dropped rather than reported, because there is by definition nowhere to report it.
 pub fn say(line: &str) {
