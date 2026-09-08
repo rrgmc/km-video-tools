@@ -162,6 +162,27 @@ tasks:
     cmds:
       - '"{{.SH}}" tools/platform/macos/installer.sh {{if .VERBOSE}}--verbose{{end}} {{.CLI_ARGS}}'
 
+  # The one above makes an ad-hoc package, which is the right default and the wrong thing to hand
+  # anybody: a downloaded copy is refused until it has been to Apple. This is that same package,
+  # signed and notarized -- named for the state it produces rather than for signing, because
+  # signed-but-not-notarized is a third state that a recipient's Mac still refuses.
+  #
+  # **Not a fan-out, because there is nothing to fan out to.** The Windows installer knows nothing
+  # about certificates, and signing there needs one nobody here has. So this is gated on darwin
+  # directly rather than dispatching to a pair.
+  #
+  # **Nothing is validated here and no certificate is named here.** Both belong to the script, which
+  # resolves every value and refuses every bad combination *before* staging -- so a wrong one costs a
+  # second rather than a build, and typing `installer.sh --notarize` by hand stays identical to this.
+  #
+  # **Never with `--no-build`.** Code is signed as it is staged, so skipping the staging would leave
+  # an ad-hoc payload inside a signed wrapper. The script refuses the combination.
+  dist:setup:notarized:
+    desc: '...the same package signed and notarized, ready to hand over -- macOS only'
+    platforms: [darwin]
+    cmds:
+      - '"{{.SH}}" tools/platform/macos/installer.sh --notarize {{if .VERBOSE}}--verbose{{end}} {{.CLI_ARGS}}'
+
   # -- clearing it out -------------------------------------------------------------------------------
   #
   # All three are tools/dist/clean.sh, and the shell lives there rather than here for a reason that is

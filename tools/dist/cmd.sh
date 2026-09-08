@@ -82,7 +82,14 @@ $(documents "$app")
 </plist>
 PLIST
 
-  echo "dist: bundled $root"
+  # **Signed here, at staging time, and not by whatever packages this later.** A carrier that signs
+  # only its own wrapper leaves ad-hoc code inside it, which is a build Apple refuses and a refusal
+  # that names the wrapper rather than the file. The executable first and the bundle second: sealing
+  # a bundle does not reach code already signed inside it.
+  dist_codesign "$root/Contents/MacOS/$app"
+  dist_codesign "$root"
+
+  echo "dist: bundled $root ($(dist_signing_note))"
 }
 
 # What a bundle opens, where it opens anything.
@@ -378,6 +385,16 @@ for app in "${APPS[@]}"; do
   # gives a Dock icon, a name in the menu bar, and a double-click.
   if [ "$PLATFORM" = macos ] && [ -f "icon/$app.icns" ]; then
     bundle "$app" "$version" "$folder"
+  fi
+
+  # The bare executables beside it, which are what the command-line half of a package carries. Every
+  # Mach-O that goes out has to be signed the same way, or the one that was not is the whole
+  # submission's answer.
+  if [ "$PLATFORM" = macos ]; then
+    dist_codesign "$folder/$app"
+    if [ -f "$folder/$app-console" ]; then
+      dist_codesign "$folder/$app-console"
+    fi
   fi
 
   echo "dist: staged $folder"

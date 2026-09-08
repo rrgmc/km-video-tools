@@ -3,11 +3,19 @@
 # Builds the macOS setup program: one Apple installer package carrying both programs.
 #
 #   tools/platform/macos/installer.sh              # stage both, build the package, test it
+#   tools/platform/macos/installer.sh --notarize   # ...signed, sent to Apple and stapled
 #   tools/platform/macos/installer.sh --no-build   # build from what is already staged
 #   tools/platform/macos/installer.sh --install    # ...and then install it here, for real
 #   tools/platform/macos/installer.sh -v           # watch the staging and the build
 #
-#   -> dist/setup/macos/km-video-tools-setup-<version>-<arch>.pkg
+#   -> dist/setup/macos/km-video-tools-setup-<version>-<arch>.pkg              --notarize
+#      ...-<arch>-unnotarized.pkg   signed only, which spctl still refuses
+#      ...-<arch>-unsigned.pkg      ad-hoc, which is the default
+#
+# **Three names rather than one, because the three are not interchangeable and a shared name loses
+# the good one.** An ordinary run minutes after a notarized one would otherwise replace a package
+# that had been to Apple with an ad-hoc file of the same name and no visible difference. Only the
+# notarized build gets the plain name, because it is the only one worth handing over.
 #
 # **A `.pkg` rather than a `.dmg`.** A `.dmg` is a folder you drag from, which is what
 # `dist/km-video-downloader/macos/...` and its zip already are; it has no components, no install
@@ -38,6 +46,7 @@ PRODUCT=com.rrgmc.km-video-tools
 BUILD=1
 INSTALL=0
 VERBOSE=0
+NOTARIZE=0
 
 # The one place the component split is written down. `downloader` is the .app and goes to
 # /Applications; `fetch` is the command line and goes to /usr/local/km-video-tools, because
@@ -56,9 +65,10 @@ for arg in "$@"; do
   case "$arg" in
     --no-build) BUILD=0 ;;
     --install) INSTALL=1 ;;
+    --notarize) NOTARIZE=1 ;;
     -v|--verbose) VERBOSE=1 ;;
     -h|--help)
-      echo "usage: tools/platform/macos/installer.sh [--no-build] [--install] [-v]"
+      echo "usage: tools/platform/macos/installer.sh [--notarize] [--no-build] [--install] [-v]"
       exit 0 ;;
     *) echo "installer: unknown option $arg" >&2; exit 2 ;;
   esac
@@ -80,6 +90,111 @@ for tool in pkgbuild productbuild pkgutil xmllint lipo; do
     exit 1
   fi
 done
+
+# -- what signs it --------------------------------------------------------------------------------
+#
+# **Two certificates, because they are two jobs.** A Developer ID *Application* signs Mach-O code and
+# bundles and is what `dist_codesign` uses at staging time; a Developer ID *Installer* signs the
+# `.pkg` itself, and `productbuild` refuses the other one. Naming a single "signing identity" is the
+# mistake this pair exists to prevent.
+#
+# **Discovered rather than written down.** Both are read out of the keychain, so no tracked file
+# names a certificate holder and a checkout works unchanged on any machine that has its own. Either
+# can still be given explicitly, which is the only way to sign as somebody else:
+#
+#     KM_SIGN_IDENTITY="Developer ID Application: Name (TEAMID)" \
+#     KM_SIGN_INSTALLER_IDENTITY="Developer ID Installer: Name (TEAMID)" \
+#     KM_NOTARY_PROFILE=km-video-tools tools/platform/macos/installer.sh --notarize
+#
+# `KM_NOTARY_PROFILE` is only the *label* of credentials stored by `xcrun notarytool
+# store-credentials`; the Apple ID and password behind it never leave the data-protection keychain,
+# which is why a name is all this repository ever holds.
+KM_NOTARY_PROFILE="${KM_NOTARY_PROFILE:-km-video-tools}"
+KM_SIGN_INSTALLER_IDENTITY="${KM_SIGN_INSTALLER_IDENTITY:-}"
+
+# Exactly one, or say which. Zero is a machine without the certificate; several is a choice this
+# script must not make silently, because the wrong one produces a package Apple accepts and the
+# wrong team ships.
+sole_identity() { # <certificate kind> -> prints the identity, or fails
+  local kind="$1" found count
+  found="$(security find-identity -v 2>/dev/null \
+           | sed -n "s/.*\"\($kind: .*\)\".*/\1/p")"
+  count="$(printf '%s' "$found" | grep -c . || true)"
+  if [ "$count" -eq 1 ]; then
+    printf '%s' "$found"
+    return 0
+  fi
+  if [ "$count" -eq 0 ]; then
+    echo "installer: this keychain has no \"$kind\" certificate." >&2
+    echo "           A Developer ID pair comes from an Apple Developer Program membership;" >&2
+    echo "           download both from developer.apple.com and open them once." >&2
+  else
+    echo "installer: this keychain has $count \"$kind\" certificates and nothing here may pick one:" >&2
+    printf '             %s\n' $found >&2
+    echo "           Name the one you mean in KM_SIGN_IDENTITY / KM_SIGN_INSTALLER_IDENTITY." >&2
+  fi
+  return 1
+}
+
+identity_exists() { # <identity>
+  security find-identity -v 2>/dev/null | grep -qF "\"$1\""
+}
+
+if [ "$NOTARIZE" -eq 1 ]; then
+  # **Signing happens while the payload is staged, not when it is wrapped.** `--no-build` would leave
+  # ad-hoc code inside a signed package, which only the round trip notices and Apple refuses. Refused
+  # here so the cost is a second rather than a submission.
+  if [ "$BUILD" -eq 0 ]; then
+    echo "installer: --notarize cannot be combined with --no-build." >&2
+    echo "           Code is signed as it is staged, so skipping the staging leaves an ad-hoc" >&2
+    echo "           payload inside a signed wrapper." >&2
+    exit 1
+  fi
+
+  for tool in codesign security; do
+    command -v "$tool" >/dev/null 2>&1 \
+      || { echo "installer: $tool is not on PATH." >&2; exit 1; }
+  done
+  xcrun --find notarytool >/dev/null 2>&1 \
+    || { echo "installer: notarytool is not available." >&2
+         echo "           It ships with the command line tools: xcode-select --install" >&2
+         exit 1; }
+
+  # Exported, because tools/dist/cmd.sh signs the payload in a child process and an unexported
+  # assignment would never reach it -- leaving an ad-hoc bundle inside a signed package.
+  if [ -z "${KM_SIGN_IDENTITY:-}" ]; then
+    KM_SIGN_IDENTITY="$(sole_identity "Developer ID Application")" || exit 1
+  fi
+  export KM_SIGN_IDENTITY
+  if [ -z "${KM_SIGN_INSTALLER_IDENTITY:-}" ]; then
+    KM_SIGN_INSTALLER_IDENTITY="$(sole_identity "Developer ID Installer")" || exit 1
+  fi
+
+  for pair in "KM_SIGN_IDENTITY:$KM_SIGN_IDENTITY" "KM_SIGN_INSTALLER_IDENTITY:$KM_SIGN_INSTALLER_IDENTITY"; do
+    if ! identity_exists "${pair#*:}"; then
+      echo "installer: ${pair%%:*} names an identity this keychain does not have:" >&2
+      echo "             ${pair#*:}" >&2
+      echo "           security find-identity -v" >&2
+      exit 1
+    fi
+  done
+
+  # Asked of Apple rather than of the keychain. `notarytool` keeps its credentials in the
+  # data-protection keychain, which the legacy `security` CLI cannot see into, so a local probe
+  # reports a working profile missing.
+  if ! xcrun notarytool history --keychain-profile "$KM_NOTARY_PROFILE" >/dev/null 2>&1; then
+    echo "installer: no notarytool credentials are stored under \"$KM_NOTARY_PROFILE\"." >&2
+    echo "           xcrun notarytool store-credentials $KM_NOTARY_PROFILE \\" >&2
+    echo "             --apple-id <apple-id> --team-id $(printf '%s' "$KM_SIGN_IDENTITY" | sed -n 's/.*(\(.*\))/\1/p')" >&2
+    echo "           The password it asks for is an app-specific one from appleid.apple.com." >&2
+    exit 1
+  fi
+elif [ -n "${KM_SIGN_IDENTITY:-}" ]; then
+  # Signing without notarizing is a real state and a poor one to ship: Gatekeeper refuses a
+  # downloaded copy just the same. Allowed, named `-unnotarized`, and left to the caller.
+  export KM_SIGN_IDENTITY
+  KM_SIGN_INSTALLER_IDENTITY="${KM_SIGN_INSTALLER_IDENTITY:-$(sole_identity "Developer ID Installer")}" || exit 1
+fi
 
 echo "== macos installer"
 
@@ -137,7 +252,17 @@ esac
 
 OUTDIR="$(dist_dir setup macos)"
 mkdir -p "$OUTDIR"
-PKG="$OUTDIR/km-video-tools-setup-$VERSION-${TRIPLE%%-*}.pkg"
+
+# The suffix says what the file is, so that three builds of one version can sit in one folder and
+# none of them can be mistaken for another. See the note at the top of this script.
+if [ "$NOTARIZE" -eq 1 ]; then
+  SUFFIX=""
+elif dist_signing; then
+  SUFFIX="-unnotarized"
+else
+  SUFFIX="-unsigned"
+fi
+PKG="$OUTDIR/km-video-tools-setup-$VERSION-${TRIPLE%%-*}$SUFFIX.pkg"
 rm -f "$PKG"
 
 STAGE="$(mktemp -d)"
@@ -231,7 +356,27 @@ PKG_MIN="$(sed -n 's/.*<os-version min="\([^"]*\)".*/\1/p' "$STAGE/distribution.
 [ -n "$PKG_MIN" ] \
   || { echo "installer: $RES/distribution.xml no longer states a minimum OS version." >&2; exit 1; }
 
-cp "$RES/welcome.html" "$RES/conclusion.html" "$STAGE/resources/"
+cp "$RES/conclusion.html" "$STAGE/resources/"
+
+# **The welcome pane tells somebody how to get past Gatekeeper, and a notarized package must not.**
+# The advice is right for an ad-hoc build and wrong for this one -- there is no dialog to get past,
+# and printing the workaround anyway teaches a habit that defeats the point of signing. The block is
+# delimited in the file rather than kept as a second copy of the pane, so the two cannot drift.
+#
+# Asserted rather than assumed: a marker renamed in the pane would otherwise stop stripping anything
+# and nothing would say so, which is the same silent-success failure the association checks exist for.
+grep -q '^<!-- unsigned-only -->$' "$RES/welcome.html" \
+  || { echo "installer: $RES/welcome.html has no <!-- unsigned-only --> marker." >&2
+       echo "           The Gatekeeper paragraph is stripped from a signed build by that marker." >&2
+       exit 1; }
+if dist_signing; then
+  sed '/^<!-- unsigned-only -->$/,/^<!-- \/unsigned-only -->$/d' "$RES/welcome.html" \
+    > "$STAGE/resources/welcome.html"
+  grep -q "not signed with a Developer ID" "$STAGE/resources/welcome.html" \
+    && { echo "installer: the signed build's welcome pane still says it is unsigned." >&2; exit 1; }
+else
+  cp "$RES/welcome.html" "$STAGE/resources/welcome.html"
+fi
 cp LICENSE-MIT "$STAGE/resources/LICENSE-MIT"
 
 # **Each pane must begin with a doctype, and this is a real fault rather than a style rule.**
@@ -245,16 +390,48 @@ for pane in welcome conclusion; do
 done
 
 echo "== building the package"
-productbuild --distribution "$STAGE/distribution.xml" \
-             --package-path "$STAGE/pkgs" \
-             --resources "$STAGE/resources" \
-             "$PKG" >/dev/null
+productbuild_args=(--distribution "$STAGE/distribution.xml"
+                   --package-path "$STAGE/pkgs"
+                   --resources "$STAGE/resources")
+
+# **The Installer certificate, not the Application one**, and `--timestamp` because a signature Apple
+# is asked to notarize must carry a trusted timestamp. A signed `productbuild` against a key it has
+# not been asked about before raises a keychain dialog that the build then waits on indefinitely,
+# with no output after this line -- answer it with Always Allow.
+if [ -n "$KM_SIGN_INSTALLER_IDENTITY" ]; then
+  productbuild_args+=(--sign "$KM_SIGN_INSTALLER_IDENTITY" --timestamp)
+fi
+
+productbuild "${productbuild_args[@]}" "$PKG" >/dev/null
 
 echo "dist: wrote $PKG"
 echo "      version     $VERSION"
 echo "      components  ${COMPONENTS[*]}"
 echo "      archs       $ARCHS"
+echo "      code        $(dist_signing_note)"
+if [ -n "$KM_SIGN_INSTALLER_IDENTITY" ]; then
+  echo "      installer   $KM_SIGN_INSTALLER_IDENTITY"
+fi
 echo "      bytes       $(wc -c < "$PKG" | tr -d ' ')"
+
+# -- Apple ----------------------------------------------------------------------------------------
+#
+# **One submission covers everything**: notarytool looks inside the package at the nested code, so
+# the `.pkg` is the only thing sent and the bundle inside it needs no submission of its own.
+#
+# **Stapled afterwards, and that is not optional for a file people download.** The notarization lives
+# on Apple's servers until `stapler` writes the ticket into the package; without it a first open on a
+# machine that cannot reach Apple is refused exactly as an unsigned package would be.
+if [ "$NOTARIZE" -eq 1 ]; then
+  echo "== notarizing (this waits on Apple)"
+  if ! xcrun notarytool submit "$PKG" --keychain-profile "$KM_NOTARY_PROFILE" --wait; then
+    echo "installer: Apple did not accept the package." >&2
+    echo "           The submission id is above; what it objected to is in:" >&2
+    echo "             xcrun notarytool log <submission-id> --keychain-profile $KM_NOTARY_PROFILE" >&2
+    exit 1
+  fi
+  xcrun stapler staple "$PKG"
+fi
 
 # -- the round trip -------------------------------------------------------------------------------
 #
@@ -374,6 +551,61 @@ BUNDLE_MIN="$(plist_value LSMinimumSystemVersion)"
 
 echo "      both components expand to what was staged, and both programs run"
 echo "      the application declares $DECLARED_UTI, opens .$EXTENSION, and asks for macOS $BUNDLE_MIN"
+
+# -- what a recipient's Mac will make of it --------------------------------------------------------
+#
+# **Asked of the payload rather than of the wrapper.** A package signed over ad-hoc code passes every
+# check above and is refused by Apple, so what is verified here is each Mach-O that actually ships --
+# which is also the only thing that proves `KM_SIGN_IDENTITY` reached the child process that staged
+# it.
+if dist_signing; then
+  TEAM="$(dist_team_id)"
+  [ -n "$TEAM" ] \
+    || { echo "installer: KM_SIGN_IDENTITY carries no team identifier in parentheses." >&2; exit 1; }
+
+  # **Captured and then matched, never `codesign | grep -q`.** `grep -q` exits on the first match and
+  # `set -o pipefail` then reports the SIGPIPE that gives the producer, so the pipeline fails on
+  # exactly the runs where the answer was yes.
+  signed_count=0
+  while IFS= read -r macho; do
+    [ -n "$macho" ] || continue
+    seal="$(codesign -dv --verbose=2 "$macho" 2>&1 || true)"
+    if ! grep -q "^TeamIdentifier=$TEAM$" <<<"$seal"; then
+      echo "installer: $macho is not signed by $TEAM, so the submission would be refused." >&2
+      echo "           tools/dist/cmd.sh signs the payload in a child process; KM_SIGN_IDENTITY" >&2
+      echo "           has to be exported to reach it." >&2
+      exit 1
+    fi
+    signed_count=$((signed_count + 1))
+  done <<MACHOS
+$STAGE/root/downloader/KM Video Downloader.app/Contents/MacOS/km-video-downloader
+$STAGE/root/downloader/KM Video Downloader.app
+$STAGE/root/fetch/km-video-fetch
+MACHOS
+
+  codesign --verify --deep --strict "$STAGE/root/downloader/KM Video Downloader.app" \
+    || { echo "installer: the application bundle's signature does not verify." >&2; exit 1; }
+
+  echo "      every shipped executable carries $TEAM ($signed_count of them)"
+fi
+
+# `spctl` is the question a recipient's Mac asks, and it is the only one of these three that a
+# signed-but-not-notarized package fails. Run for the notarized build alone, because that is the
+# only build claiming to pass it.
+if [ "$NOTARIZE" -eq 1 ]; then
+  signature="$(pkgutil --check-signature "$PKG" 2>&1 || true)"
+  # `pkgutil` and `spctl` word this differently and only one of them is being asked here: the phrase
+  # below is `pkgutil`'s, and `source=Notarized Developer ID` is `spctl`'s, checked further down.
+  grep -q "^   Notarization: trusted by the Apple notary service$" <<<"$signature" \
+    || { echo "installer: pkgutil does not call this a notarized package:" >&2
+         printf '%s\n' "$signature" >&2; exit 1; }
+  xcrun stapler validate "$PKG" >/dev/null 2>&1 \
+    || { echo "installer: the notarization ticket is not stapled to the package." >&2
+         echo "           A first open with no network would be refused." >&2; exit 1; }
+  spctl -a -vvv -t install "$PKG" >/dev/null 2>&1 \
+    || { echo "installer: spctl refuses the .pkg, so a recipient's Mac would too." >&2; exit 1; }
+  echo "      signed, notarized, stapled, and accepted by spctl"
+fi
 
 # -- and, if asked, the real thing ----------------------------------------------------------------
 #

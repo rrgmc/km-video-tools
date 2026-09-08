@@ -57,6 +57,64 @@ dist_min_macos() { # -> prints the minimum macOS version
   printf '11.0'
 }
 
+# -- how a macOS build is signed -------------------------------------------------------------------
+
+# **Empty means ad-hoc**, and that is the default on purpose: a fresh clone, a CI runner and anybody
+# else's Mac have no certificates and must still be able to stage a build. Set it to a Developer ID
+# and every macOS signing call in the tree uses that instead.
+#
+#     KM_SIGN_IDENTITY="Developer ID Application: Some Name (TEAMID)"
+#
+# **One variable read in one place, because the call sites must not disagree.** A bundle whose
+# executable is Developer ID and whose bundle seal is ad-hoc is a bundle notarization refuses, and
+# the refusal names neither. `dist_codesign` is what makes that impossible to get wrong.
+KM_SIGN_IDENTITY="${KM_SIGN_IDENTITY:-}"
+
+# The team identifier, taken out of the identity string rather than configured twice: a Developer ID
+# is spelled `Developer ID Application: Name (TEAMID)`, and TEAMID is what every provenance check
+# wants. Empty for an ad-hoc build.
+dist_team_id() { # -> prints the team identifier, or nothing
+  case "$KM_SIGN_IDENTITY" in
+    *\(*\)*) printf '%s' "${KM_SIGN_IDENTITY##*\(}" | tr -d ')' ;;
+  esac
+}
+
+dist_signing() { [ -n "$KM_SIGN_IDENTITY" ]; }
+
+# Every `codesign` in this repository goes through here.
+#
+# **`--options runtime` is applied at every call and not only to the bundle.** Sealing a bundle does
+# not add the hardened runtime to code already signed inside it, and `codesign --verify --deep
+# --strict` does not check that it is there — so a partial application passes every check this tree
+# has and then fails notarization, naming nothing useful.
+#
+# `--timestamp` asks Apple's timestamp authority, so a signed build needs the network where an ad-hoc
+# one does not. Notarization requires it.
+dist_codesign() { # <path...>
+  if dist_signing; then
+    codesign --force --sign "$KM_SIGN_IDENTITY" --options runtime --timestamp "$@"
+  else
+    codesign --force --sign - "$@"
+  fi
+}
+
+# The code hash of a signed Mach-O: what it *is*, rather than the bytes it occupies. Empty for
+# anything unsigned or not a Mach-O, so a caller comparing two of these has to check for that rather
+# than treat two empties as a match.
+dist_cdhash() { # <mach-o> -> prints the CDHash, or nothing
+  codesign -d --verbose=4 "$1" 2>&1 | sed -n 's/^CDHash=//p'
+}
+
+# The one line every report prints about what it just made, said in one place so that no two scripts
+# describe the same artifact differently.
+dist_signing_note() { # -> prints one line
+  if dist_signing; then
+    printf 'Developer ID — %s' "$KM_SIGN_IDENTITY"
+  else
+    printf 'ad-hoc — set KM_SIGN_IDENTITY for a Developer ID build'
+  fi
+}
+
 # The one place the layout is written down:
 #
 #   dist/<app>/<platform>/<app>-<version>-<triple>/
@@ -277,13 +335,19 @@ the install asked for.
 
 **Your videos are not touched.** Neither is the download folder you chose. Settings live in
 ~/Library/Application Support/km-video-downloader and are left alone too.
+MACOS
+      # The Gatekeeper note belongs to an unsigned build alone. A notarized package opens on a first
+      # double-click, and describing a dialog somebody will not see teaches a habit they do not need.
+      if ! dist_signing; then
+        cat <<'MACOS_UNSIGNED'
 
 A note on the warning you may have seen
 ---------------------------------------
 
 This package is not signed with a Developer ID, so Gatekeeper refuses it on a first double-click.
 Control-click the .pkg and choose Open, or allow it under System Settings, Privacy & Security.
-MACOS
+MACOS_UNSIGNED
+      fi
       ;;
     *)
       echo "dist: no installed README is written for $1" >&2

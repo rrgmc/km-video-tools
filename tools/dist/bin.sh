@@ -241,12 +241,18 @@ BODY
 
 "KM Video Downloader.app" is the one with an icon, a Dock entry and a menu bar. The bare
 km-video-downloader in the bin-console folder is the same program with somewhere to print.
+BODY
+        # Said only where it is true. A Developer ID build carries a signature any Mac accepts, so
+        # the quarantine step below is one an unsigned folder needs and a signed one does not.
+        if ! dist_signing; then
+          cat <<'BODY'
 
 The bundle is not signed with a Developer ID, so on any Mac other than the one that built it macOS
 refuses to open it until the quarantine flag is cleared:
 
     xattr -dr com.apple.quarantine "KM Video Downloader.app"
 BODY
+        fi
       fi
     else
       cat <<'BODY'
