@@ -622,3 +622,70 @@ Windows.
 Inherited from the karaoke app and worth keeping: **no tracked file names a local drive or folder, a
 home LAN address, personal hardware, or a person** — not in prose, not in a comment, not as test
 data. A sample is invented; a reproduction step names a variable.
+
+## How a document in this repository is written
+
+**A document states the rule and the reason somebody would need in order not to undo it. It does not
+narrate how the rule was arrived at.**
+
+What that excludes, in order of how often it creeps back:
+
+- **What something used to be.** No former names, former defaults, former behaviors, no "this
+  reverses", "this used to say", "since renamed", "no longer". A reader arrives at the repository as
+  it is; a sentence about a state that is gone costs them a paragraph and tells them nothing they
+  can act on. This covers a decision that was reversed as much as a spelling that changed.
+- **Chronology.** No milestone numbers, no dates in headings, no ordering of when things were found.
+  A date belongs in the body only where a reader needs to know when a measurement was taken.
+- **Meta-commentary on the writing.** Any sentence whose subject is the document: "recorded rather
+  than glossed", "and that is the record of it", "worth saying out loud".
+- **Reassurance and common sense.** A paragraph explaining that a first run works, or that a
+  diagnostic is optional, is a paragraph nobody needed.
+- **Appositive tails.** "…, which is what makes X safe", "…, and that is deliberate rather than an
+  accident" — the clause after the comma usually restates the clause before it.
+
+What survives is the imperative and the trap. **A heading that instructs is not verbose** —
+`Nothing committed describes the machine it was written on` *is* the content. A heading that merely
+describes is trimmed to a plain noun phrase.
+
+**The keep-test for a paragraph**: would a reader who deleted it either re-derive a wrong answer, or
+break something silently? Anything in the past tense about a decision that no longer holds fails it.
+When unsure, keep the sentence and delete the paragraph around it.
+
+**This applies to code comments too**, on the same test. A comment saying why a line is the way it
+is earns its place; one saying what the line used to be does not.
+
+**A heading is quoted from outside `docs/`.** `.github/workflows/ci.yml` and `rust-toolchain.toml`
+each cite one by its full text, and nothing validates the citation. Grep for a heading before
+rewriting it, and change the citation in the same commit.
+
+**The em-dash stays.** It is how a parenthetical mechanism is punctuated here. What goes is the
+clause after it that restates the clause before it, not the dash.
+
+## What a user reads is written in plain application language
+
+**Every surface a person uses speaks the plain, conventional English of a software application.**
+Short labels, ordinary sentences, standard terminology. Three readers, and the register is theirs
+rather than the writer's:
+
+| Reader | Surfaces | Register |
+|---|---|---|
+| somebody fetching videos | the window's pages, its alerts, the installer panes | labels; at most one short sentence |
+| an operator setting it up | `--help`, console output, the folder picker | a sentence or two, consequence first |
+| a maintainer reading the source | code comments, `docs/` | the reasoning, at whatever length it takes |
+
+**A page is not a comment.** Where the reasoning behind a control is worth keeping, it belongs in the
+`{# #}` or `//` beside the markup. It does not belong on screen, where it costs a reader who came to
+press a button.
+
+**Out, on any surface in the first two rows**: aphorism, inverted sentences, rhetorical contrast of
+the *X is not Y, it is Z* shape, em-dash asides, and any sentence whose subject is the design rather
+than the thing the reader is doing.
+
+**`--help` is one of those surfaces.** clap builds it out of the doc comments on the `Cli` structs in
+`km-video-fetch/src/main.rs` and `km-video-downloader/src/lib.rs`, so a `///` there is read by an
+operator and not only by a maintainer. Reasoning goes in a `//` comment above it, where the `///`
+keeps the plain statement.
+
+**Plain does not mean shorter.** A fact a reader acts on survives the rewrite: that a browser cannot
+hand a page a folder path is why the picker lists server-side, and it stays. What goes is the
+argument around the fact.
