@@ -15,11 +15,11 @@
 //! failure the ffmpeg call in [`crate::profile`] has to spawn a thread to avoid, where a child fills
 //! a pipe nobody is draining and both processes stop.
 //!
-//! **A web page has no terminal to hand over**, so [`spawn_watched`] pipes after all — and it is
-//! therefore the one function here that has to answer the paragraph above rather than benefit from
-//! it. It does so the same way `profile::transcode` does: **each pipe is drained by a thread of its
-//! own**, so neither can fill while nothing reads it. The caller's line sink runs on the stdout
-//! thread. Nothing about [`spawn`] changes; the two exist side by side because the choice is real.
+//! **A web page has no terminal to hand over**, so [`spawn_watched`] pipes after all, and is
+//! therefore the one function here that has to avoid that failure rather than sidestep it. It does
+//! so the same way `profile::transcode` does: **each pipe is drained by a thread of its own**, so
+//! neither can fill while nothing reads it. The caller's line sink runs on the stdout thread.
+//! [`spawn`] is unaffected; the two exist side by side because the choice is real.
 //!
 //! # The console window is the second half of that same choice
 //!

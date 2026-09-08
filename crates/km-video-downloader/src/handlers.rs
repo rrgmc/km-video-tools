@@ -545,8 +545,8 @@ mod tests {
             stopped: false,
         };
 
-        // The one this was got wrong on first: a 403 with nothing downloaded is not a folder that
-        // was already up to date, and saying so was a quiet lie.
+        // A 403 with nothing downloaded is not a folder that was already up to date, and reporting
+        // it as one is a quiet lie.
         let mut failed = outcome(0, true);
         failed.completed = false;
         assert!(summarize(&failed, false).contains("could not fetch anything"));

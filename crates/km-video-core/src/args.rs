@@ -78,12 +78,12 @@ pub const ARCHIVE_NAME: &str = ".km-fetched.txt";
 
 /// What the record file is called, **relative to the destination**.
 ///
-/// Three properties, each of which was arrived at the hard way, because `--print-to-file`'s file
-/// argument is put through yt-dlp's output-template machinery rather than taken as a path:
+/// Three properties, all of them forced by `--print-to-file`'s file argument going through yt-dlp's
+/// output-template machinery rather than being taken as a path:
 ///
 /// * **Relative, so `-P` resolves it.** Given a long *absolute* path, `--trim-filenames` shortens it
-///   by dropping directory components — the record file was written one folder above the videos, and
-///   the run then reported that it had fetched nothing at all, because that is where it looked.
+///   by dropping directory components, which writes the record file one folder above the videos and
+///   leaves the run reporting it fetched nothing at all, because that is where it looks.
 /// * **No leading dot.** Sanitisation strips one, so `.records.jsonl` is written as `records.jsonl`
 ///   and a tool looking for the name it asked for finds nothing. It would rather be a hidden file;
 ///   it cannot be, so it is deleted as soon as it has been read instead.

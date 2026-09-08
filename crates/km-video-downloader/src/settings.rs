@@ -3,9 +3,9 @@
 //! # Why anything is remembered at all
 //!
 //! Because the output folder is the one answer that does not change. Somebody curating a corpus
-//! fetches into the same place for months; asking again every morning is the difference between a
-//! tool and a form. The options come with it for the same reason — a person who always normalizes
-//! should not re-tick it each session.
+//! fetches into the same place for months, so asking again on every run is friction that buys
+//! nothing. The options come with it for the same reason — a person who always normalizes should not
+//! re-tick it each session.
 //!
 //! # It never fails
 //!

@@ -7,10 +7,10 @@
 //! of its list is a whole playlist and the next is one video, nor that two of them belong in
 //! different folders. There is no per-URL form of either option to reach for.
 //!
-//! `docs/design.md` already says whether a URL means one video or a playlist is stated rather than
-//! guessed. This is that sentence one level finer: the run says what a line means when the line does
-//! not, and a line may say. What it costs is that a marked list is several yt-dlp runs rather than
-//! one — see [`crate::fetch`], where the splitting happens.
+//! `docs/design.md` states the rule this refines: whether a URL means one video or a playlist is
+//! stated rather than guessed. The run says what a line means when the line does not, and a line may
+//! say. What it costs is that a marked list is several yt-dlp runs rather than one — see
+//! [`crate::fetch`], where the splitting happens.
 //!
 //! # The grammar
 //!

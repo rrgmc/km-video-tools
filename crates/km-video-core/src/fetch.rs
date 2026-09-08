@@ -460,7 +460,7 @@ fn runs(plan: &args::Plan) -> Result<(Vec<args::Plan>, Scratch)> {
     //
     // **A header counts as saying something**, and has to: `--cookies-from-browser firefox` handed
     // to `--batch-file` is a line yt-dlp reads as a URL. So the passthrough survives for exactly
-    // the files that say nothing at all, which is what the paragraph above always claimed.
+    // the files that say nothing at all.
     if settings == list::Settings::default()
         && entries
             .iter()
