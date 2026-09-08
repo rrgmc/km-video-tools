@@ -235,13 +235,13 @@ pub fn run(shell: Shell) -> Result<()> {
         Ok(bound) => bound,
         // **The port being taken is the ordinary way a second double-click arrives**: there is one
         // of these running already, and it is the one with the window. Hand over and stop.
-        // Anything else, and any failure to hand over, is the error it always was.
+        // Anything else, and any failure to hand over, is an ordinary error.
         //
-        // **Whether a list came with it does not enter into this.** It used to, and that was the
-        // bug: the branch answered the second double-click of a list and left the second
-        // double-click of the program to die without a word, which is the commoner of the two and
-        // the whole failure `handoff` was written for. It also made the branch unreachable on
-        // macOS, where a document arrives as an Apple Event and the positional is always empty.
+        // **Whether a list came with it does not enter into this.** Gating the branch on a list
+        // answers the second double-click of a list and leaves the second double-click of the
+        // program to die without a word, which is the commoner of the two and the whole failure
+        // `handoff` exists for. It also makes the branch unreachable on macOS, where a document
+        // arrives as an Apple Event and the positional is always empty.
         Err(error) => {
             if address_is_taken(&error) {
                 let list = opened_list(&cli);

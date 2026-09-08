@@ -363,9 +363,9 @@ impl Form {
     /// two links beside a picked file of forty means forty-two, and duplicates are dropped rather
     /// than fetched twice.
     ///
-    /// **`list::merge` rather than a `dedup` here**, and the difference is not cosmetic:
-    /// `Vec::dedup` drops only *consecutive* equals, so a link present in both the textarea and the
-    /// picked file used to survive it and be fetched twice — the sentence above was not true.
+    /// **`list::merge` rather than a `dedup` here.** `Vec::dedup` drops only *consecutive* equals,
+    /// so a link present in both the textarea and the picked file survives it and is fetched twice,
+    /// which makes the paragraph above untrue.
     ///
     /// **The order is the order of precedence**, because merging keeps a link's first mention and
     /// the marker that came with it: what somebody typed or picked on the page just now, then the

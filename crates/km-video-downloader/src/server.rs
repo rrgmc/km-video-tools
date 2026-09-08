@@ -449,9 +449,9 @@ mod tests {
 
     /// A handoff carrying no list is the plain second launch, and the answer to it is the window.
     ///
-    /// **The waking is the whole of what happens**, which is why it is what this asserts rather than
-    /// a status alone: with no list there is nothing to take, and a 200 that woke nobody would be
-    /// this program agreeing it had been opened and then sitting behind whatever is in front of it.
+    /// **The waking is the whole of what happens**, so that is what this asserts rather than a
+    /// status alone: with no list there is nothing to take, and a 200 that woke nobody would be this
+    /// program agreeing it had been opened and then sitting behind whatever is in front of it.
     ///
     /// The empty body is what [`crate::handoff::hand_over`] sends for `None`, so this also pins the
     /// two halves together: a `Fields::parse` that read `""` as a `path` field would turn a

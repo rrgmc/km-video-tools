@@ -1,13 +1,12 @@
 //! Whether what arrived is what packaging wants, and putting it right when it is not.
 //!
-//! Glue over [`crate::probe`] and [`crate::profile`], and it is worth its own module because the
-//! sequence matters: probe, then measure, then — only if asked — re-encode through a temporary name.
+//! Glue over [`crate::probe`] and [`crate::profile`], its own module because the sequence matters:
+//! probe, then measure, then — only if asked — re-encode through a temporary name.
 //!
-//! **This used to be optional and no longer is.** In the karaoke app the module sat behind a
-//! default-off `video` feature, because reaching the profile meant linking ffmpeg; a build without
-//! the feature downloaded exactly as well and simply could not say whether what landed was playable.
-//! Reading a file through `ffprobe` costs no linkage, so the feature is gone and the answer is
-//! always given.
+//! **The answer is always given, never gated behind a feature.** Reaching the profile through
+//! `ffmpeg-next` would mean linking ffmpeg, which is what puts a module like this behind a
+//! default-off `video` feature and leaves a build that downloads exactly as well and cannot say
+//! whether what landed is playable. Reading a file through `ffprobe` costs no linkage.
 //!
 //! Nothing here restates what the profile is — [`crate::profile`] is where that lives, and it in
 //! turn is a copy of the karaoke app's, which is the authoritative one.

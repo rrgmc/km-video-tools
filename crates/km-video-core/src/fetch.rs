@@ -2,17 +2,16 @@
 //!
 //! # Why this is a library function and not a `main`
 //!
-//! It used to be a `main`. Every step below lived in `km-video-fetch`'s own `run()`, interleaved
-//! with the `println!`s that reported it, which is a perfectly good shape right up to the moment a
-//! second front end wants the same sequence. A web page cannot reuse a function that prints.
+//! **A function that prints cannot be reused by a second front end.** Keeping these steps in
+//! `km-video-fetch`'s own `run()`, interleaved with the `println!`s that report them, is a perfectly
+//! good shape right up to the moment a web page wants the same sequence.
 //!
-//! So the sequence moved here and the printing stayed there. [`fetch`] does the work and calls
-//! `on_event` as it goes; the command line renders those events as lines, and the web UI renders the
-//! same events as a page. Neither knows anything the other does not.
+//! So the sequence is here and the printing is there. [`fetch`] does the work and calls `on_event`
+//! as it goes; the command line renders those events as lines, and the web UI renders the same
+//! events as a page. Neither knows anything the other does not.
 //!
-//! **That is the repository's own rule, now enforced rather than asserted.** `docs/decisions.md`
-//! says a binary crate here is a command line and its output; before this module it was true only
-//! because nothing had tested it.
+//! This module is where the repository's own rule is enforced rather than asserted:
+//! `docs/decisions.md` says a binary crate here is a command line and its output.
 //!
 //! # The events are a narration, not a state machine
 //!
@@ -532,15 +531,15 @@ fn runs(plan: &args::Plan) -> Result<(Vec<args::Plan>, Scratch)> {
 /// otherwise leave one there for good. It cannot help a Ctrl-C, which is true of the record file too
 /// and is accepted for the same reason.
 ///
-/// **Filled as the files are written rather than from the finished plans**, which is not a
-/// refactor: [`runs`] writes one file per group and has a `?` between them, so a list refused
-/// halfway used to orphan everything written before it.
+/// **Filled as the files are written rather than from the finished plans.** [`runs`] writes one file
+/// per group and has a `?` between them, so taking the names from the finished plans orphans
+/// everything written before a list refused halfway.
 ///
-/// **[`args::ASKED_NAME`] belongs here too, and its absence was a leak rather than a nicety.** That
-/// is the file a front end writes the links it was handed into; the page writes one on every Fetch
-/// and nothing ever removed it, so a folder of songs collected one per download. It is never among
-/// the plans [`runs`] returns for a marked list — it is the file that was *read* to make them — so
-/// it is registered from the plan that came in.
+/// **[`args::ASKED_NAME`] belongs here too, and leaving it out is a leak rather than a nicety.**
+/// That is the file a front end writes the links it was handed into, and the page writes one on
+/// every Fetch — unregistered, a folder of songs collects one per download. It is never among the
+/// plans [`runs`] returns for a marked list — it is the file that was *read* to make them — so it is
+/// registered from the plan that came in.
 #[derive(Debug, Default)]
 struct Scratch(Vec<PathBuf>);
 
@@ -1033,10 +1032,10 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// Regression. The file a front end writes the links into is scratch too, and nothing used to
-    /// remove it: the page wrote one on every Fetch and a folder of songs collected one per
-    /// download. Both shapes matter — for a marked list the asked file is not among the plans that
-    /// come back, it is what was read to make them, so it can only be caught from the plan going in.
+    /// The file a front end writes the links into is scratch too: unregistered, the page's one file
+    /// per Fetch leaves a folder of songs collecting one per download. Both shapes matter — for a
+    /// marked list the asked file is not among the plans that come back, it is what was read to make
+    /// them, so it can only be caught from the plan going in.
     #[test]
     fn the_list_a_front_end_wrote_goes_away_too_however_the_run_was_split() {
         for (name, list) in [

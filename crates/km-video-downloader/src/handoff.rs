@@ -8,23 +8,22 @@
 //! double-click of somebody's afternoon does nothing, says nothing, and leaves no trace anywhere
 //! they would think to look.
 //!
-//! **A list is not what makes that happen, which is why one is optional here.** The first version of
-//! this module handed over only when a file association had passed a path, and so answered the
-//! second double-click of a *list* while leaving the second double-click of the *program* exactly
-//! where it had been — the commoner of the two, and silent on both platforms. macOS made the gap
-//! plain rather than causing it: it delivers a document as an Apple Event, so the positional
-//! argument is empty there even on the launch that opened a file, and the whole branch was
-//! unreachable on that platform.
+//! **A copy that cannot have the port hands over whatever it was opened with, including nothing at
+//! all**, and the copy with the window comes forward. A list is not what makes the failure above
+//! happen, which is why one is optional here.
 //!
-//! So the rule is now the plain one. **A copy that cannot have the port hands over whatever it was
-//! opened with, including nothing at all**, and the copy with the window comes forward.
+//! Handing over only when a file association has passed a path answers the second double-click of a
+//! *list* and leaves the second double-click of the *program* exactly where it was — the commoner of
+//! the two, and silent on both platforms. It is also unreachable on macOS, which delivers a document
+//! as an Apple Event, so the positional argument is empty there even on the launch that opened a
+//! file.
 //!
 //! # The port is the handoff
 //!
 //! There is no second mechanism here — no named pipe, no lock file, no single-instance mutex. The
 //! program that is already running is already an HTTP server on a known port, so the copy that
 //! cannot start posts its path to it and stops. The instance with the window is the instance that
-//! answers, which is the right way round.
+//! answers.
 //!
 //! # Written by hand, over a `TcpStream`
 //!
