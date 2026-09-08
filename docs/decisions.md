@@ -5,40 +5,39 @@ repository that disagrees with it; where the two conflict, the other one is out 
 
 ## The repository exists so that the karaoke app has no downloader in it
 
-`km-video-fetch` was `tools/cmd/km-video-fetch` inside the karaoke app and is the one thing there
-that reached the network for song material.
+**The karaoke app reaches the network for no song material at all.** `km-video-fetch` is the one
+thing there that did, and nothing that fetches is added back.
 
 **The line is between what a person asks for and what a machine decides to do on its own**, and this
-tool has always been on the asked-for side: it runs yt-dlp against what somebody points it at and
-fetches nothing on its own. That was true while it lived in the product's repository, and it was
-still a paragraph in a document rather than a fact about the code. Now the product's repository
-contains no downloader at all.
+tool is on the asked-for side: it runs yt-dlp against what somebody points it at and fetches nothing
+on its own.
 
-**Public rather than hidden.** The point of the split is the sentence above, not secrecy — a private
-staging period while the extraction settles is a staging state and not the intent.
+**The separation is structural rather than stated.** A document claiming the product does not
+download can be out of date; a repository with no downloader in it cannot.
+
+**Public rather than hidden.** A private staging period while the extraction settles is a staging
+state and not the intent.
 
 Downloading from a site may be contrary to its terms regardless of purpose, and the videos are
 third-party copyrighted works. That is a matter for whoever runs the download rather than for this
-repository, which is why the rule is **do not do it for anybody** rather than *do not be in that
-business*.
+repository, so the rule is **do not do it for anybody** rather than *do not be in that business*.
 
 ## The packaging profile is copied, and the karaoke app's is authoritative
 
 `crates/km-video-core/src/profile.rs` is a copy of `tools/cmd/km-pack/src/profile.rs` over there.
 
-**That reverses the reason `km-pack` is a library**, which is that the profile should live in one
-place, and the cost was accepted knowingly. Taking the real one meant taking `km-video` with it, and
-`km-video` is `#![cfg(feature = "ffmpeg")]` at crate level over an unconditional dependency on the
-machine's audio crate — so a downloader would link ffmpeg, need libclang at build time for bindgen,
-and compile a synthesizer and an audio host, all to borrow one plain-data struct and one `matches!`.
+**The profile should live in one place, and this is a second copy of it**, at a cost accepted
+knowingly. Taking the real one means taking `km-video` with it, and `km-video` is
+`#![cfg(feature = "ffmpeg")]` at crate level over an unconditional dependency on the machine's audio
+crate — so a downloader would link ffmpeg, need libclang at build time for bindgen, and compile a
+synthesizer and an audio host, all to borrow one plain-data struct and one `matches!`.
 
 **Where the two disagree, the other one is right.** It runs inside the packager, so what it accepts is
 what a package actually contains; this copy only says, earlier, what that answer will be. Each file
 carries a header saying so.
 
-**Drift is bounded rather than merely hoped for.** The numbers are anchored to what the appliance's
-decoder can draw — it copies three planes and contains no `swscale`, which is why the pixel format is
-the only blocking finding — and they have not moved since they were written.
+**Drift is bounded.** The numbers are anchored to what the appliance's decoder can draw — it copies
+three planes and contains no `swscale`, which is why the pixel format is the only blocking finding.
 
 ## A file is read with `ffprobe`, not with `ffmpeg-next`
 
@@ -50,20 +49,20 @@ package; a machine that can run one can run the other.
 
 **What it buys is the whole build.** No linking, no C toolchain, no bindgen, no libclang — four
 dependencies from crates.io and a `cargo build` that works anywhere. For a program whose entire job is
-to run two other programs, linking a codec library to read ten integers out of a header was the wrong
+to run two other programs, linking a codec library to read ten integers out of a header is the wrong
 trade.
 
 Two things the library gave away that the subprocess has to do by hand, both covered by tests:
 choosing the picture stream rather than the cover art, and looking tags up case-insensitively.
 
-## The check is no longer optional
+## The check is not behind a feature
 
-In the karaoke app the whole check-and-normalize half sat behind a default-off `video` feature,
-because reaching the profile meant linking ffmpeg. A build without the feature downloaded exactly as
-well and simply could not say whether what landed was playable.
+**With `ffprobe` there is nothing to gate**, so the check is never optional and the tool's third
+reason to exist is always available.
 
-With `ffprobe` there is nothing to gate, so **the check is never behind a feature** and the tool's
-third reason to exist is always available.
+Reaching the profile through `ffmpeg-next` would mean linking ffmpeg, which is what puts a
+check-and-normalize half behind a default-off `video` feature — and leaves a build that downloads
+exactly as well and cannot say whether what landed is playable.
 
 The workspace does have one feature — `km-video-downloader/desktop`, which is its window — and it is
 on by default. That is a different kind of thing: it decides what a program *is*, not whether it can
@@ -94,46 +93,45 @@ I/O at all. Deciding how many runs there are means reading the list. `runs` is a
 plan and a file for exactly the reason `argv` is a pure function of a plan: so what it decides can be
 asserted by value rather than by running yt-dlp.
 
-**A list that says nothing is handed over unread and unrewritten** — byte for byte the argv this tool
-has always built. That is what keeps a `km-video-fetch.kmvf` somebody maintains by hand from being
-rewritten behind their back, and what keeps a list carrying things `list.rs` does not model working
-exactly as it did. An unreadable list says nothing and is yt-dlp's to complain about.
+**A list that says nothing is handed over unread and unrewritten**, byte for byte the argv an
+unmarked list builds. That keeps a `km-video-fetch.kmvf` somebody maintains by hand from being
+rewritten behind their back, and keeps a list that carries things `list.rs` does not model working
+at all. An unreadable list says nothing and is yt-dlp's to complain about.
 
 **Single-video runs first, then playlist runs.** A folder's archive makes the first run win a
 duplicate, and *this one video* is the more specific statement than *this playlist that happens to
 contain it*; it is also the fast half, so somebody watching sees their named picks land before a
 two-hundred-item playlist starts. Fixed rather than derived from the flag, because an order that
-depended on a checkbox would be worse to reason about and worse to test.
+depends on a checkbox is worse to reason about and worse to test.
 
 **Each destination keeps its own archive.** `ARCHIVE_NAME` already says an archive is a fact about
 *this folder* — which songs are in it — carried with it if the folder is copied elsewhere. So a video
-asked for in two folders lands in both, which is what asking for two folders meant.
+asked for in two folders lands in both, which is what asking for two folders means.
 
-Four things about yt-dlp that the split made load-bearing, each read out of its `--help` or its
-behaviour rather than assumed:
+Four things about yt-dlp are load-bearing here, each read out of its `--help` or its behaviour
+rather than assumed:
 
 - **`--print-to-file` appends.** So the record file is removed *before* each run and read-and-deleted
-  *after* it. The shorter arrangement happens to work today; this one is correct either way.
+  *after* it. Removing it only afterwards is correct by accident of ordering and not by rule.
 - **`--batch-file` is an ordinary path argument**, resolved against the working directory and neither
   trimmed nor sanitised — `ARCHIVE_NAME`'s class, not `RECORDS_NAME`'s. So a generated list is passed
   with its folder on it, and the record file is passed as a bare name, and one test asserts both
   halves so the asymmetry cannot be half-remembered.
-- **`#`, `;` and `]` all start a comment** in a batch file. Only `#` was skipped before. Passing a `;`
-  line through untouched cost nothing; *re-emitting* it as a URL would be an extraction error for a
-  line nobody meant to fetch, and a marked list is written back out.
+- **`#`, `;` and `]` all start a comment** in a batch file, and all three are skipped. Passing a `;`
+  line through untouched costs nothing; *re-emitting* it as a URL is an extraction error for a line
+  nobody meant to fetch, and a marked list is written back out.
 - **A marked file is this tool's file, not yt-dlp's.** yt-dlp would read a marker as a comment or as
   part of the URL. Which is the strongest reason an unmarked list is never rewritten.
 
-**`Event::Downloaded` stays one per fetch**, carrying the combined haul. A second would overwrite a
-caller's total with the last run's count alone — and where that run fetched nothing, `job.rs` reads
-zero as *nothing known yet* and leaves the bar sweeping for the whole checking phase of a run that
-succeeded. The `Command` event does fire per run, which is the narration being a narration.
+**`Event::Downloaded` is one per fetch**, carrying the combined haul. A second overwrites a caller's
+total with the last run's count alone — and where that run fetched nothing, `job.rs` reads zero as
+*nothing known yet* and leaves the bar sweeping for the whole checking phase of a run that succeeded.
+The `Command` event does fire per run.
 
-**`fetch` could not previously tell that a watched run had been stopped.** `run::spawn_watched` folds
-a stop into success on purpose — a killed child exits unsuccessfully, and reporting that as a failure
-would tell somebody who pressed Stop that yt-dlp had broken. With one run it did not matter, because
-the answer arrived with the `Downloaded` event and the web UI's flag is latched. With several it
-would have been luck, so the line sink captures the `Flow` it returns. With `|=`, not `=`: collected
+**The line sink captures the `Flow` that `run::spawn_watched` returns**, which is how `fetch` tells
+that a watched run was stopped. `spawn_watched` folds a stop into success on purpose — a killed child
+exits unsuccessfully, and reporting that as a failure would tell somebody who pressed Stop that
+yt-dlp had broken. Across several runs nothing else carries the answer. With `|=`, not `=`: collected
 stderr is replayed through the sink *after* the kill.
 
 **A line may not name a folder outside the one the fetch was pointed at**, and the rule is one
@@ -145,31 +143,28 @@ surface as something that reads like the site said no. Refused rather than quiet
 destination on the second one.
 
 **Three words and not "whatever yt-dlp takes".** A line that could carry a format selector or a
-cookie browser is a much larger promise, and each one would be another axis a run has to be split
-along.
+cookie browser is a much larger promise, and each one is another axis a run has to be split along.
 
 ## A list has an extension of its own, and something opens it
 
-`km-video-fetch.txt` became **`km-video-fetch.kmvf`**, and the extension is registered with
-`km-video-downloader` by both setup programs.
+The list a folder carries for itself is **`km-video-fetch.kmvf`**, and the extension is registered
+with `km-video-downloader` by both setup programs.
 
-**`.txt` was the one thing that could not be said about it.** A list is a document with a grammar —
+**`.txt` is the one thing that cannot be said about it.** A list is a document with a grammar —
 `--playlist`, `--no-playlist` and `--out folder` in front of a URL, all of it in [`list`] — and an
-operating system has no way to learn that from a name it shares with every other text file. So the
-file could not be double-clicked, carried no icon, and sat in a file manager as one more `.txt`. The
-extension is not decoration on the rename; it *is* the rename.
+operating system has no way to learn that from a name it shares with every other text file. A `.txt`
+cannot be double-clicked into this program, carries no icon, and sits in a file manager as one more
+text file.
 
 **Two rules, and they are easy to conflate.** The list a folder carries for itself is matched by
-exact filename, in the destination folder, only where nothing else was named — `folders_own_list` is
-unchanged but for the constant it joins. The association is matched by extension, on any such file
-anywhere, and means only that somebody opened one. Neither rule reaches the other: opening
-`anything.kmvf` does not make it a folder's own list, and a folder's own list is found whether or not
-anything on the machine associates the extension.
+exact filename, in the destination folder, only where nothing else was named. The association is
+matched by extension, on any such file anywhere, and means only that somebody opened one. Neither
+rule reaches the other: opening `anything.kmvf` does not make it a folder's own list, and a folder's
+own list is found whether or not anything on the machine associates the extension.
 
-**Renamed with no fallback.** A folder carrying the old name stops being found until it is renamed by
-hand. The alternative was two names to document, a precedence between them, and a sentence in every
-explanation of the feature for the life of the program — for a tool built here and handed to somebody
-as a folder or an installer, that is a worse trade than one rename.
+**There is no fallback to `.txt`.** A folder carrying that name is not found, and is renamed by hand.
+Two names would mean a precedence between them and a sentence in every explanation of the feature for
+the life of the program.
 
 **And nothing this program writes for itself carries the extension.** `ASKED_NAME`, `SINGLES_NAME`
 and `PLAYLISTS_NAME` keep `.txt`, and a test pins it. Those sit in somebody's folder of songs for the
@@ -183,49 +178,48 @@ two things and no third: the output folder moves to that list's own folder, and 
 on the page, ticked. **Nothing is fetched** — opening a document is somebody saying *look at this*,
 not *do it*.
 
-**The failure this had to remove is the second double-click.** A double-click starts a new process
-every time, and a second one cannot bind the port — on the GUI-subsystem executable, whose standard
-error goes nowhere at all, it exited without a word and left no trace anywhere somebody would think
-to look. That is the same class of failure as `println!` being a crash, below, and it would have been
-found the same way: never from a shell, only from Explorer.
+**The second double-click is what this removes.** A double-click starts a new process every time and
+a second one cannot bind the port — on the GUI-subsystem executable, whose standard error goes
+nowhere at all, it exits without a word and leaves no trace anywhere somebody would think to look.
+That is the same class of failure as `println!` being a crash, below, and it is found the same way:
+never from a shell, only from Explorer.
 
 **The port is the whole mechanism.** No named pipe, no lock file, no single-instance mutex — the
 copy that is already running is already an HTTP server on a known port, so the copy that cannot start
 posts to it and stops. The instance with the window is the instance that answers.
 
-**A list is the optional half of that message, and it took a correction to get there.** The first
-version handed over only where a file association had passed a path, so it answered the second
-double-click of a *list* and left the second double-click of the *program* — somebody opening this
-while it is already open, which is the commoner of the two — dying exactly as described above. The
-condition read as a guard and was really a narrowing.
+**A list is the optional half of that message.** The rule is the plain one — **a copy that cannot
+have the port hands over whatever it was opened with, including nothing at all** — and
+`POST /opened` reads a body with no path as *come forward* rather than as a malformed request.
 
-macOS is what made that visible rather than what caused it: a document arrives there as an Apple
-Event, so the positional is always empty and the whole branch was unreachable on that platform. The
-rule is now the plain one — **a copy that cannot have the port hands over whatever it was opened
-with, including nothing at all** — and `POST /opened` reads a body with no path as *come forward*
-rather than as a malformed request. With nothing to take, the waking is the entire answer, which is
-what the test for it asserts; a 200 that woke nobody would be this program agreeing it had been
-opened and then staying behind whatever is in front of it.
+Handing over only where a file association passed a path answers the second double-click of a *list*
+and leaves the second double-click of the *program* — somebody opening this while it is already open,
+the commoner of the two — dying as described above. Such a condition reads as a guard and is a
+narrowing. It is also unreachable on macOS, where a document arrives as an Apple Event and the
+positional is always empty.
+
+With nothing to take, the waking is the entire answer, which is what the test for it asserts; a 200
+that woke nobody would be this program agreeing it had been opened and then staying behind whatever
+is in front of it.
 
 **And it says so where anybody can hear it.** A successful handoff goes through `say`, so the console
 build tells somebody who typed the command twice why the second one exited without a window, and the
-windowed build drops the line for want of anywhere to put it. That is that function's whole job.
+windowed build drops the line for want of anywhere to put it.
 
-**`POST /opened` grants nothing new**, which is the question worth asking of any new endpoint here.
-Anything that can reach that port can already post `/out` and `/fetch` and make this program write
-files wherever it likes; that is what *it is on loopback, it already writes files wherever it is
-pointed, and it runs as whoever started it* has always meant. One more endpoint on that surface is
-not one more capability.
+**`POST /opened` grants nothing new.** Anything that can reach that port can already post `/out` and
+`/fetch` and make this program write files wherever it likes; that is what *it is on loopback, it
+already writes files wherever it is pointed, and it runs as whoever started it* means. One more
+endpoint on that surface is not one more capability.
 
 **The request is written by hand over a `TcpStream`.** There is no HTTP client in this tree and this
-was not the reason to add one: `reqwest` would bring a TLS stack and a second async runtime into a
+is not a reason to add one: `reqwest` would bring a TLS stack and a second async runtime into a
 program whose whole build story is a handful of crates and no C compiler, to talk to a socket on this
 same machine.
 
 **Every answer from that endpoint carries a marker, refusals included.** Identity and outcome are two
 facts. With the marker only on success, *this program said no* and *that port belongs to something
-else* were indistinguishable from the far end, and a path that was not there got reported as a
-stranger on the port.
+else* are indistinguishable from the far end, and a path that is not there reads as a stranger on the
+port.
 
 **macOS reaches all of this by a different road and ends in the same place.** That platform delivers
 a document to an application as an Apple Event rather than as an argument, so the positional is empty
@@ -234,22 +228,16 @@ second file opened while the application is running is delivered to it by Launch
 by a handoff. Windows never sends that event and macOS never sends the argument, so the two are not
 alternatives to be chosen between.
 
-Both roads were walked on a Mac before this was believed: a `.kmvf` opened with nothing running, and
-a second opened with the window up. The second reuses the running application and never starts a
-process to hand anything over, which is the platform doing by itself what the handoff does on
-Windows.
-
-**One case on macOS is improved rather than solved, and it is written down here rather than left to
-be discovered.** Where the copy holding the port is one LaunchServices does not know about — the bare
-executable, or a `cargo run`, rather than the bundle — a double-clicked list starts the bundle as a
-second process, and *that* process is the one the Apple Event is addressed to. It exits at the failed
-bind, before an event loop exists to receive it, so it hands over with no path: the window comes
-forward and the list is not shown. Better than the silent death it used to be, and short of right.
+**One case on macOS is improved rather than solved.** Where the copy holding the port is one
+LaunchServices does not know about — the bare executable, or a `cargo run`, rather than the bundle —
+a double-clicked list starts the bundle as a second process, and *that* process is the one the Apple
+Event is addressed to. It exits at the failed bind, before an event loop exists to receive it, so it
+hands over with no path: the window comes forward and the list is not shown.
 
 Closing it means running an event loop in a process whose whole job is to exit — construct an
 `NSApp`, wait a bounded moment for `Event::Opened`, hand over whatever arrived — for a case that
 needs a copy running outside LaunchServices' knowledge, which is a thing developers have and users do
-not. Not paid for yet; the shape of the fix is recorded so the decision is a decision.
+not. Not paid for.
 
 **The opened list is drawn only where it is not already the folder's own** — which is the usual case,
 since opening one moves the folder to where it sits. Two rows would be this program offering the same
