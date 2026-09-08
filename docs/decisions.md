@@ -248,12 +248,12 @@ file twice, under two names, with two counts to reconcile.
 `main` returns a `Result`, and an `Err` out of it goes to standard error — the right arrangement
 everywhere except the one place this program is actually started from. A GUI-subsystem executable has
 a null standard error, and an application bundle launched by LaunchServices has one nobody will read.
-So the program vanished on startup and left nothing behind, which is the same silence `say` exists
-for and the same one the handoff removed for a taken port.
+So the program vanishes on startup and leaves nothing behind, which is the same silence `say` exists
+for and the same one the handoff removes for a taken port.
 
 **The handoff covers the common cause and this covers the rest**: a port held by a program that is
-*not* this one, a directory that cannot be made, a runtime that will not start. Rare, and each was
-until now indistinguishable from the program not existing.
+*not* this one, a directory that cannot be made, a runtime that will not start. Rare, and each is
+otherwise indistinguishable from the program not existing.
 
 **The check is on the terminal, not on the build.** `Shell::Console`, the `desktop` feature and
 `windows_subsystem` are all proxies for *can anybody read what was printed*, and each is wrong
@@ -262,7 +262,7 @@ file manager has none. `stderr().is_terminal()` asks the real question, so the d
 where the message would otherwise have gone nowhere and never as a second copy of something already
 on screen.
 
-**macOS only, and the asymmetry is deliberate.** `osascript` is in the base system and this program
+**macOS only.** `osascript` is in the base system and this program
 already shells out to `open` for a browser — one more child, no dependency, the shape `opener.rs` is
 already in. Windows would want `MessageBoxW` and therefore `windows-sys`, the first such crate in a
 tree whose whole build story is a handful of crates and no C compiler; and it already has the answer
@@ -285,28 +285,28 @@ yields a package that installs cleanly and an application LaunchServices files u
 In both cases the first person to find out is somebody double-clicking a list.
 
 So the Windows driver reads its keys back with `reg.exe` and the macOS driver reads the document types
-out of `Info.plist` with `plutil`. **Out of the Payload, not out of the staging directory**, which is
-the whole point of reading anything back: what is proved has to be what somebody receives, and a
-correct staged bundle beside a wrong archive is exactly the failure the round trip is for.
+out of `Info.plist` with `plutil`. **Out of the Payload, not out of the staging directory**: what is proved has to be what somebody
+receives, and a correct staged bundle beside a wrong archive is exactly the failure the round trip is
+for.
 
 Four things are asserted, and each is one that can be wrong on its own: the plist parses at all; the
 type the bundle *declares* and the type its document entry *opens* are the same string, a mismatch
 being the macOS shape of an extension registered to a ProgId with no command behind it; there is
 exactly one filename extension; and `LSHandlerRank` is `Owner` beside a `CFBundleIdentifier` for
 LaunchServices to file the declaration under. **The extension is read rather than repeated** — one
-place decides it for this platform, and a copy typed into the check would agree with that place right
-up until the day it did not. The Windows driver reads its own out of the `.iss` for the same reason.
+place decides it for this platform, and a copy typed into the check is free to drift from it. The
+Windows driver reads its own out of the `.iss` for the same reason.
 
-**And the assertions were watched to fail.** Each was tried against a deliberately broken
-`documents()` — a mismatched identifier, a dropped tag specification, an unbalanced tag — because a
-check that has never been seen to refuse anything is not known to check anything.
+**Each assertion is watched to fail**, against a deliberately broken `documents()` — a mismatched
+identifier, a dropped tag specification, an unbalanced tag — because a check that has never been seen
+to refuse anything is not known to check anything.
 
 ## The bundle states the macOS floor, and two files agree about it
 
-`11.0` — what the wry/tao stack needs — used to live only in `distribution.xml`, which binds a `.pkg`
-install and nothing else. But that is one of two ways this is handed over; the other is the staged
-folder, and a bundle without `LSMinimumSystemVersion` dropped on an older Mac fails in the dynamic
-loader before `main`, which is the same failure with none of the explanation.
+`11.0`, what the wry/tao stack needs, is stated in both places this is handed over by.
+`distribution.xml` binds a `.pkg` install and nothing else; the other way is the staged folder, and a
+bundle without `LSMinimumSystemVersion` dropped on an older Mac fails in the dynamic loader before
+`main`, which is the same failure with none of the explanation.
 
 So the bundle states it too, out of `common.sh`'s `dist_min_macos`. Neither copy can be derived from
 the other — one is an XML attribute `productbuild` reads, the other a plist key LaunchServices reads —
@@ -315,9 +315,9 @@ refuse a build where the two disagree.
 
 ## The macOS installer's conclusion pane is where a GUI-only install reads
 
-`dist_installed_readme macos` is written into the **fetch** component's payload, and that is correct
-— it lands in `/usr/local/km-video-tools` beside the program it describes. The consequence is that
-somebody who unticks `km-video-fetch` installs no README anywhere and never reads a word of it.
+`dist_installed_readme macos` is written into the **fetch** component's payload, landing in
+`/usr/local/km-video-tools` beside the program it describes. The consequence is that somebody who
+unticks `km-video-fetch` installs no README anywhere and never reads a word of it.
 
 **Not fixed by putting one beside the application.** A loose `README.txt` in `/Applications` is
 against the platform, and inside the bundle it is a file nobody opens. The Installer's own conclusion
@@ -331,17 +331,16 @@ moment at all.
 back, check, re-encode — and calls back as it goes. `km-video-fetch` renders those events as lines;
 `km-video-downloader` renders them as a progress bar and a list.
 
-**This was the rule above being tested for the first time, and it did not hold.** All of that
-sequence used to live in `km-video-fetch`'s own `run()`, interleaved with the printlns reporting it —
-a perfectly good shape until a second front end wanted the same sequence, at which point it was
-unreusable, because a web page cannot call a function that prints.
+**A function that prints cannot be reused by a second front end.** Keeping the sequence in
+`km-video-fetch`'s own `run()`, interleaved with the printlns that report it, is a perfectly good
+shape until a web page wants the same sequence — and a web page cannot call a function that prints.
 
-Two consequences worth stating, because they are what keeps the two faces honest:
+Two consequences keep the two faces honest:
 
 - **The events are a narration, not a state machine.** They arrive in the order things happen and
   each is complete in itself. A caller that ignores every one of them still gets the `Outcome`.
 - **`km-video-core` decides no wording.** Every sentence a person reads is in the crate that shows
-  it, which is why the command line's output could move without changing a word of it.
+  it, so the command line's output can move without changing a word of it.
 
 The line sink also returns a `Flow`, which is how Stop reaches a running fetch. That is a second job
 for a closure already being called at every point where stopping is possible — as against a flag the
@@ -386,12 +385,13 @@ is no `prefers-color-scheme` block: this program has one appearance and states i
 
 ## It is an application with a window, not a program that prints an address
 
-**This reverses the first decision made about it**, which was that a browser tab would be the whole
-user interface — on the grounds that km-admin's `desktop` feature wants `km-tray`, `km-console`,
-`km-osopen` and `km-logfile`, all the karaoke app's crates. That was true of two of them and wrong
-about what it cost: double-clicking the executable opened a console showing an address, which is not
-an application. Of the four, the tray is genuinely optional, `opener.rs` replaces one in fifteen
-lines, and the console shim is replaced by [`say`] not being `println!` (below).
+**A browser tab is not the whole user interface.** Double-clicking the executable to be shown a
+console with an address in it is not an application.
+
+The cost of a window looks like four of the karaoke app's crates, because that is what km-admin's
+`desktop` feature wants: `km-tray`, `km-console`, `km-osopen` and `km-logfile`. Only two are real.
+The tray is genuinely optional, `opener.rs` replaces one in fifteen lines, and the console shim is
+replaced by [`say`] not being `println!` (below).
 
 So `desktop` is a feature and it is **on by default**, because the point of a default is what
 somebody gets without knowing there was a choice. `--no-default-features` still builds the
@@ -407,8 +407,8 @@ alike, so there is never a second front end to keep in step. `--browser` asks fo
 
 `std::io::_print` **panics** on a write failure — `failed printing to stdout` — and a
 GUI-subsystem executable on Windows has a null standard output handle that fails every write. Left
-as `println!`, every double-click would abort the process, and it would never once fail when run
-from a shell, which is where it would have been tested.
+as `println!`, every double-click aborts the process, and it never once fails when run from a shell,
+which is where it would be tested.
 
 `say()` writes and drops the error. There is nowhere to report an error about there being nowhere to
 report.
@@ -434,31 +434,30 @@ which is exactly what that call exists to pass along. It also buys nothing there
 parent having a console already.
 
 **Hide the console wherever the child's output is captured or discarded; never where the child is
-handed a terminal on purpose.** Every other call already pipes or nulls its output, so the window was
-never showing anybody anything.
+handed a terminal on purpose.** Every other call already pipes or nulls its output, so the window
+shows nobody anything.
 
-This was got wrong once, and the shape of the mistake is worth keeping. The helper and the reasoning
-above both existed, applied to `ffmpeg` and `ffprobe`, while the program was still console-subsystem
-and it was merely tidy. The commit that made the downloader a real application changed the subsystem
-without extending the helper to `run.rs`, so the case the comment described came true in the one
-module that did not have it.
+**Changing the subsystem is what makes this load-bearing.** While a program is console-subsystem the
+helper is merely tidy and a spawn site without it costs nothing; the moment the executable is
+GUI-subsystem, every such site is a black window. A subsystem change reaches every spawn in the tree
+or it reaches none of them.
 
 ## The icon is the same drawing under a fifth palette
 
 Angular bands, a near-black plate, `KM` with a coloured M: the karaoke app's mark, because these
 programs are run beside its and belong to it. **A vermilion lead**, chosen by hue distance rather
 than by taste: its four sit at 45°, 148°, 196° and 324°, and this is 11° — 34° clear of the
-nearest. The first attempt, a cyan at 180°, was 16° from the package builder's blue, which is
-exactly the confusion a per-program palette exists to prevent.
+nearest. A cyan at 180° is refused for the same reason: 16° from the package builder's blue, which
+is exactly the confusion a per-program palette exists to prevent.
 
 The other opening, around 260°, is a violet and is refused: the tile's own ground is a deep violet
 and its middle band a magenta, so a violet lead would make the whole icon one hue with nothing to
 catch at 16 pixels.
 
 `crates/km-video-downloader/examples/icon.rs` draws it and writes `icon/`. Its geometry is a copy of
-that repository's renderer, which reads colours out of `km_display::theme::Theme` and types out of
-SDL, neither reachable from here. **The copy can drift and that is fine**: these are different
-programs' icons and are supposed to differ.
+the karaoke app's renderer, which reads colours out of `km_display::theme::Theme` and types out of
+SDL, neither reachable from here. **The copy may drift**: these are different programs' icons and are
+supposed to differ.
 
 The `.ico` goes inside the Windows executable through `build.rs`, which is the only way Explorer,
 the Start menu and the taskbar have an icon *before* the process starts. The `.icns` is written
@@ -483,8 +482,7 @@ say which. The list offers the nine; the field accepts the rest.
 ## The folder picker is a server-side listing
 
 **A browser will not tell a page where a picked file lives** — a file input gives contents, not
-locations, and that is a security property rather than an oversight. There is no folder input at all.
-So the listing is done on this side: the server reads a directory, the page draws it, a click asks
+locations — and there is no folder input at all. So the listing is done on this side: the server reads a directory, the page draws it, a click asks
 for the next one.
 
 That grants nothing new. The program is on loopback, it already writes files wherever it is pointed,
@@ -500,19 +498,18 @@ browser sends is the file's bytes, and the bytes are all that is wanted.
 
 **`rust-toolchain.toml` names one `x.y.z` version, and it is the only place the number is decided.**
 
-This entry used to say the opposite, and the reversal is the point. The argument against a pin was
-that this is a standalone tool other people compile with whatever their distribution ships, so one
-turns "I have Rust installed" into "rustup will now download a second toolchain". That is the right
-answer for a library and this is not one — two programs and the crate they share, every member
-`publish = false`, built here and handed to somebody as a folder or an installer. Nothing compiles
-against it, so the pin is imposed on nobody but whoever works on it.
+The argument against a pin is that this is a standalone tool other people compile with whatever
+their distribution ships, so one turns "I have Rust installed" into "rustup will now download a
+second toolchain". That is the right answer for a library and this is not one — two programs and the
+crate they share, every member `publish = false`, built here and handed to somebody as a folder or an
+installer. Nothing compiles against it, so the pin is imposed on nobody but whoever works on it.
 
-**What the floating channel cost was not reproducibility in the abstract.** `task lint` is clippy
-with `-D warnings`, so a lint introduced upstream on a Tuesday fails a branch that changed nothing
+**A floating channel does not cost reproducibility in the abstract.** `task lint` is clippy with
+`-D warnings`, so a lint introduced upstream on a Tuesday fails a branch that changed nothing
 relevant, and "passes locally" means only "passes on whatever this machine last fetched". It also
-broke outright: `rust-version` was inherited from the karaoke app's pin at 1.98.1 while `stable` on
-the machine was still 1.98.0, and every cargo command in the workspace refused before it compiled
-anything. A pin is what makes those two numbers one decision instead of a race.
+breaks outright: a `rust-version` of 1.98.1 inherited from the karaoke app's pin, against a `stable`
+of 1.98.0, makes every cargo command in the workspace refuse before it compiles anything. A pin is
+what makes those two numbers one decision instead of a race.
 
 **The number propagates rather than being repeated.** `.github/workflows/ci.yml` installs with
 `rustup toolchain install --no-self-update`, which resolves the file, `components` and all;
@@ -521,8 +518,8 @@ read the file, so keeping it would mean the version written twice. `Cargo.toml`'
 the one copy that no format lets us derive, and `tools/dev/check-toolchain-pin.sh` — which
 `task check` runs — fails naming a disagreement, a floating channel, or a returning `dtolnay` step.
 
-The cost is that a bump is now a commit rather than a `rustup update`. That is the trade
-the karaoke app made first, and its arrangement is what this copies.
+The cost is that a bump is a commit rather than a `rustup update`. The arrangement is copied from
+the karaoke app.
 
 ## `dist/` is output, and nothing else writes there
 
@@ -541,46 +538,44 @@ asks cargo.
 
 `dist_fresh_dir` clears only the folder it is about to write, and a folder's name carries its version
 — so a build of 1.8.0 does not replace 1.7.0, it lands beside it. `task clean:old` is what takes the
-older one away, and until it exists something has to decide which of the two is *the* staged build.
+older one away, and until it is run something has to decide which of the two is *the* staged build.
 
-**Picking the first glob match is the wrong answer, and it fails silently.** That is what
-`tools/dist/bin.sh` and `tools/platform/macos/installer.sh` each did, in two private copies of one
-`staged_dir` function: they globbed `<app>-*-<triple>`, and a glob expands in sorted order, so with
-both versions present they returned 1.7.0. Nothing downstream disagreed. `bin.sh` gathered the old
-executables and read the version out of one of *them*; both setup programs then read it out of that
-payload in turn. The result was an installer correctly labelled `1.7.0` carrying a build nobody asked
-for, on both platforms, with no failure anywhere for anybody to notice — which is the same class of
-mistake as a cleaner that reports success while matching nothing.
+**Picking the first glob match is the wrong answer, and it fails silently.** A glob of
+`<app>-*-<triple>` expands in sorted order, so with 1.7.0 and 1.8.0 both present it returns 1.7.0,
+and nothing downstream disagrees: `bin.sh` gathers those executables and reads the version out of one
+of *them*, and both setup programs then read it out of that payload in turn. The result is an
+installer correctly labelled `1.7.0` carrying a build nobody asked for, on both platforms, with no
+failure anywhere for anybody to notice — the same class of mistake as a cleaner that reports success
+while matching nothing.
 
 `dist_staged_dir` in `tools/dist/common.sh` names the folder instead of searching for one, out of
 `dist_pkg_version` — one number, because every crate here is `version.workspace = true`.
 
 **This is not a breach of "from a binary, never a manifest."** That rule answers *what is this
-artifact*, and it still does: the version printed, the folder named by `tools/dist/cmd.sh`, and the
-number on every installer all still come from a binary's own `--version`. The manifest answers a
-different question — *which artifact did we mean* — and the two cannot contradict each other, because
-the folder's name was built out of that binary's answer in the first place. What changed is only the
-failure: a current build that is not staged now says so, where before it was quietly replaced by an
-older one.
+artifact*: the version printed, the folder named by `tools/dist/cmd.sh`, and the number on every
+installer all come from a binary's own `--version`. The manifest answers a different question —
+*which artifact did we mean* — and the two cannot contradict each other, because the folder's name
+was built out of that binary's answer in the first place. A current build that is not staged says so
+rather than being quietly replaced by an older one.
 
 ## `task clean` is a script, because Task's shell has no `rm`
 
 Task runs every command through its own embedded POSIX shell, which has `for`, `case` and parameter
 expansion everywhere but no `rm` — that is an external command, and there is no `rm.exe` on Windows
-any more than there is a `sed`. So `clean: rm -rf dist`, which stood in `Taskfile.yml`, was
+any more than there is a `sed`. So a `clean: rm -rf dist` written in `Taskfile.yml` is
 
     "rm": executable file not found in $PATH
     task: Failed to run task "clean": exit status 127
 
-from a PowerShell or a `cmd`. It appeared to work only from a Git Bash — the one shell whose `PATH`
-lends Task a coreutils it does not otherwise have — so the task was broken in precisely the situation
-the `SH` variable exists to serve, and looked fine in the one it does not need to.
+from a PowerShell or a `cmd`. It works only from a Git Bash — the one shell whose `PATH` lends Task
+a coreutils it does not otherwise have — so such a task is broken in precisely the situation the `SH`
+variable exists to serve and looks fine in the one it does not need to.
 
-All three clean tasks are `tools/dist/clean.sh` now. The Taskfile chooses which script to run, which
-is what it already did for staging, and the deleting happens where coreutils exist. Inherited from
-the karaoke app, which hit this first and whose `clean:old` this one is a port of.
+All three clean tasks are `tools/dist/clean.sh`. The Taskfile chooses which script to run, which is
+what it does for staging, and the deleting happens where coreutils exist. Inherited from the karaoke
+app, whose `clean:old` this is a port of.
 
-**`--old` has no special cases, and that is the property to keep.** An entry is removed only when its
+**`--old` has no special cases.** An entry is removed only when its
 name begins with its app's own name followed by a version that is not the wanted one, so anything
 unrecognized survives without being named here: the versionless `dist/bin/<platform>`, the generated
 directory the Windows installer clears itself, the macOS bundle whose number lives in its
@@ -607,8 +602,8 @@ Windows.
 
 ## Nothing committed describes the machine it was written on
 
-Inherited from the karaoke app and worth keeping: **no tracked file names a local drive or folder, a
-home LAN address, personal hardware, or a person** — not in prose, not in a comment, not as test
+Inherited from the karaoke app: **no tracked file names a local drive or folder, a home LAN
+address, personal hardware, or a person** — not in prose, not in a comment, not as test
 data. A sample is invented; a reproduction step names a variable.
 
 ## How a document in this repository is written
