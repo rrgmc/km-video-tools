@@ -143,6 +143,7 @@ task check      # fmt, clippy, tests — in the order a failure is cheapest to r
 task dist       # stage a folder somebody can be handed, into dist/
 task dist:bin   # ...or one folder with every program in it
 task dist:setup # ...or a setup program, for the people who would rather not unpack one
+task dist:setup:notarized  # ...that one signed and sent to Apple, on macOS
 task run -- '<url>' --out ./songs
 task ui         # run the window
 task clean:old  # take away the staged releases that are not this version
@@ -176,8 +177,8 @@ itself to your `PATH` and to open `.kmvf` files with the downloader, and takes b
 uninstalled. It needs Inno Setup 6 (`winget install JRSoftware.InnoSetup`), which it looks for in the
 per-user location `winget` uses before the Program Files ones.
 
-On **macOS** it writes `dist/setup/macos/km-video-tools-setup-<version>-<arch>.pkg`, an Apple
-installer package: the application goes to `/Applications` and `km-video-fetch` to
+On **macOS** it writes `dist/setup/macos/km-video-tools-setup-<version>-<arch>-unsigned.pkg`, an
+Apple installer package: the application goes to `/Applications` and `km-video-fetch` to
 `/usr/local/km-video-tools`, with a symlink in `/usr/local/bin`, which is already on your `PATH` —
 so there is no “add me to your `PATH`” tick and nothing edits a `.zshrc`. There is no tick for the
 `.kmvf` association either: the application bundle declares the file type and LaunchServices notices
@@ -192,9 +193,24 @@ skipped; the macOS one reads the document types out of the packaged bundle's `In
 type it declares is the type it opens, that it names exactly one extension, and that the extension is
 the one reported rather than a second copy typed into the check.
 
-Both are **unsigned**, so a recipient meets SmartScreen or Gatekeeper on a first run; the fix for
+`task dist:setup:notarized` is the macOS build worth handing over: the same package with every
+executable signed by a Developer ID, the package signed by its Installer counterpart, sent to Apple
+and the returned ticket stapled into the file. It opens on a first double-click anywhere, with no
+network needed to check it. The three states get three names — the notarized build takes the plain
+`...-<arch>.pkg`, a signed-but-not-notarized one `-unnotarized`, and the ad-hoc default `-unsigned`
+— because a shared name means an ordinary build replaces a notarized package with something that
+looks identical in a folder listing.
+
+Both certificates are read out of the keychain, so nothing here names a certificate holder and a
+checkout signs with whatever the machine has. `KM_SIGN_IDENTITY`, `KM_SIGN_INSTALLER_IDENTITY` and
+`KM_NOTARY_PROFILE` override that. Notarizing needs credentials stored once with
+`xcrun notarytool store-credentials km-video-tools`.
+
+The **Windows** installer is unsigned, so a recipient meets SmartScreen on a first run; the fix for
 that is a purchased certificate rather than a build step. Neither installer touches your downloaded
 videos or your settings when removed, and each says so on its way out.
+
+The release procedure both of these feed into is [RELEASE.md](RELEASE.md).
 
 ## Layout
 
