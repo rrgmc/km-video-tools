@@ -91,8 +91,8 @@ impl Job {
 
     /// Folds one of [`fetch::fetch`]'s events into what the page shows.
     ///
-    /// **This is the whole of the translation**, and it is the counterpart of the command line's
-    /// `Reporter`: the same events, turned into a bar and a list instead of into lines.
+    /// **This is the whole of the translation**, the counterpart of the command line's `Reporter`:
+    /// the same events, turned into a bar and a list instead of into lines.
     pub fn absorb(&self, event: &fetch::Event) {
         use fetch::Event as E;
         match event {
@@ -293,9 +293,9 @@ fn arrival(record: &km_video_core::run::Record, verdict: &fetch::Verdict) -> Arr
 
     // **Settled by the verdict, before anything looks for a file**, because a dry run never writes
     // one: `args::SIMULATE_TEMPLATE` leaves `filepath` out on purpose, there being nothing to put in
-    // it. Asking for the path first is what made every row of a dry run a red *no file was written*
-    // here, while the command line said *would fetch this (3:33)* about the same record — and it
-    // left the `NotFetched` arm below unreachable from this page.
+    // it. Asking for the path first turns every row of a dry run into a red *no file was written*
+    // here while the command line says *would fetch this (3:33)* about the same record, and leaves
+    // the `NotFetched` arm below unreachable from this page.
     if let V::NotFetched = verdict {
         return Arrival {
             name: record.describe(),

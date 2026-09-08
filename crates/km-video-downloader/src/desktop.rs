@@ -4,8 +4,8 @@
 //! front end: the webview loads the same loopback URL a browser would, so one set of templates
 //! answers for the window and the browser alike, and a bug fixed in one is fixed in both.
 //!
-//! **`tao`'s event loop owns the main thread and its `run` never returns**, which is the whole
-//! reason [`crate::run`] builds its tokio runtime by hand rather than wearing `#[tokio::main]`. The
+//! **`tao`'s event loop owns the main thread and its `run` never returns**, which is why
+//! [`crate::run`] builds its tokio runtime by hand rather than wearing `#[tokio::main]`. The
 //! runtime is moved in here and held for the life of the process: dropping it would stop the server
 //! the window exists to look at.
 //!

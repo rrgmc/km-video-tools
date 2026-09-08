@@ -19,7 +19,7 @@
     {% else %}
     {# Not an error. The folder is made on the first fetch — but saying so beats a silent surprise
        when somebody expected to be fetching into a folder that already had things in it. #}
-    <span class="tag warn">not there yet — it will be created</span>
+    <span class="tag warn">will be created</span>
     {% endif %}
   </p>
   {% endif %}
@@ -51,8 +51,8 @@
   <label class="field">
     <span>Links, one per line
       <small>A line may start with <code>--playlist</code>, <code>--no-playlist</code> or
-        <code>--out&nbsp;folder</code> change global settings for it. Lines above the
-        first link allow setting any command-line argument.</small></span>
+        <code>--out&nbsp;folder</code> to set that one link's own answer. Lines above the first
+        link set the options below for the whole list.</small></span>
     <textarea name="urls" rows="6" spellcheck="false"
               placeholder="https://&hellip;&#10;--playlist https://&hellip;&#10;--out anime https://&hellip;"></textarea>
   </label>
@@ -102,28 +102,28 @@
 
     <label class="check">
       <input type="checkbox" name="normalize" {% if normalize %}checked{% endif %}>
-      <span>Re-encode if not matching the standard profile</span>
+      <span>Re-encode anything outside the packaging profile</span>
     </label>
 
     <label class="check">
       <input type="checkbox" name="subs" {% if subs %}checked{% endif %}>
       <span>Mux subtitles
-        <small>The app don't load external subtitles.</small></span>
+        <small>Off by default. The karaoke app does not read them.</small></span>
     </label>
 
     <label class="check">
       <input type="checkbox" name="no_archive" {% if no_archive %}checked{% endif %}>
-      <span>Overwrite if existing</span>
+      <span>Fetch videos already in the archive again</span>
     </label>
 
     <label class="check">
       <input type="checkbox" name="dry_run">
-      <span>Dry-run
-        <small>Execute but don't download anything.</small></span>
+      <span>Dry run
+        <small>Report what would be fetched, and fetch nothing.</small></span>
     </label>
 
     <label class="field small">
-      <span>Video amount limit</span>
+      <span>Take at most this many from a playlist</span>
       <input type="number" name="limit" min="1" value="{{ limit }}" placeholder="no limit">
     </label>
 

@@ -5,40 +5,39 @@ repository that disagrees with it; where the two conflict, the other one is out 
 
 ## The repository exists so that the karaoke app has no downloader in it
 
-`km-video-fetch` was `tools/cmd/km-video-fetch` inside the karaoke app and is the one thing there
-that reached the network for song material.
+**The karaoke app reaches the network for no song material at all.** `km-video-fetch` is the one
+thing there that did, and nothing that fetches is added back.
 
 **The line is between what a person asks for and what a machine decides to do on its own**, and this
-tool has always been on the asked-for side: it runs yt-dlp against what somebody points it at and
-fetches nothing on its own. That was true while it lived in the product's repository, and it was
-still a paragraph in a document rather than a fact about the code. Now the product's repository
-contains no downloader at all.
+tool is on the asked-for side: it runs yt-dlp against what somebody points it at and fetches nothing
+on its own.
 
-**Public rather than hidden.** The point of the split is the sentence above, not secrecy — a private
-staging period while the extraction settles is a staging state and not the intent.
+**The separation is structural rather than stated.** A document claiming the product does not
+download can be out of date; a repository with no downloader in it cannot.
+
+**Public rather than hidden.** A private staging period while the extraction settles is a staging
+state and not the intent.
 
 Downloading from a site may be contrary to its terms regardless of purpose, and the videos are
 third-party copyrighted works. That is a matter for whoever runs the download rather than for this
-repository, which is why the rule is **do not do it for anybody** rather than *do not be in that
-business*.
+repository, so the rule is **do not do it for anybody** rather than *do not be in that business*.
 
 ## The packaging profile is copied, and the karaoke app's is authoritative
 
 `crates/km-video-core/src/profile.rs` is a copy of `tools/cmd/km-pack/src/profile.rs` over there.
 
-**That reverses the reason `km-pack` is a library**, which is that the profile should live in one
-place, and the cost was accepted knowingly. Taking the real one meant taking `km-video` with it, and
-`km-video` is `#![cfg(feature = "ffmpeg")]` at crate level over an unconditional dependency on the
-machine's audio crate — so a downloader would link ffmpeg, need libclang at build time for bindgen,
-and compile a synthesizer and an audio host, all to borrow one plain-data struct and one `matches!`.
+**The profile should live in one place, and this is a second copy of it**, at a cost accepted
+knowingly. Taking the real one means taking `km-video` with it, and `km-video` is
+`#![cfg(feature = "ffmpeg")]` at crate level over an unconditional dependency on the machine's audio
+crate — so a downloader would link ffmpeg, need libclang at build time for bindgen, and compile a
+synthesizer and an audio host, all to borrow one plain-data struct and one `matches!`.
 
 **Where the two disagree, the other one is right.** It runs inside the packager, so what it accepts is
 what a package actually contains; this copy only says, earlier, what that answer will be. Each file
 carries a header saying so.
 
-**Drift is bounded rather than merely hoped for.** The numbers are anchored to what the appliance's
-decoder can draw — it copies three planes and contains no `swscale`, which is why the pixel format is
-the only blocking finding — and they have not moved since they were written.
+**Drift is bounded.** The numbers are anchored to what the appliance's decoder can draw — it copies
+three planes and contains no `swscale`, which is why the pixel format is the only blocking finding.
 
 ## A file is read with `ffprobe`, not with `ffmpeg-next`
 
@@ -50,20 +49,20 @@ package; a machine that can run one can run the other.
 
 **What it buys is the whole build.** No linking, no C toolchain, no bindgen, no libclang — four
 dependencies from crates.io and a `cargo build` that works anywhere. For a program whose entire job is
-to run two other programs, linking a codec library to read ten integers out of a header was the wrong
+to run two other programs, linking a codec library to read ten integers out of a header is the wrong
 trade.
 
 Two things the library gave away that the subprocess has to do by hand, both covered by tests:
 choosing the picture stream rather than the cover art, and looking tags up case-insensitively.
 
-## The check is no longer optional
+## The check is not behind a feature
 
-In the karaoke app the whole check-and-normalize half sat behind a default-off `video` feature,
-because reaching the profile meant linking ffmpeg. A build without the feature downloaded exactly as
-well and simply could not say whether what landed was playable.
+**With `ffprobe` there is nothing to gate**, so the check is never optional and the tool's third
+reason to exist is always available.
 
-With `ffprobe` there is nothing to gate, so **the check is never behind a feature** and the tool's
-third reason to exist is always available.
+Reaching the profile through `ffmpeg-next` would mean linking ffmpeg, which is what puts a
+check-and-normalize half behind a default-off `video` feature — and leaves a build that downloads
+exactly as well and cannot say whether what landed is playable.
 
 The workspace does have one feature — `km-video-downloader/desktop`, which is its window — and it is
 on by default. That is a different kind of thing: it decides what a program *is*, not whether it can
@@ -94,46 +93,45 @@ I/O at all. Deciding how many runs there are means reading the list. `runs` is a
 plan and a file for exactly the reason `argv` is a pure function of a plan: so what it decides can be
 asserted by value rather than by running yt-dlp.
 
-**A list that says nothing is handed over unread and unrewritten** — byte for byte the argv this tool
-has always built. That is what keeps a `km-video-fetch.kmvf` somebody maintains by hand from being
-rewritten behind their back, and what keeps a list carrying things `list.rs` does not model working
-exactly as it did. An unreadable list says nothing and is yt-dlp's to complain about.
+**A list that says nothing is handed over unread and unrewritten**, byte for byte the argv an
+unmarked list builds. That keeps a `km-video-fetch.kmvf` somebody maintains by hand from being
+rewritten behind their back, and keeps a list that carries things `list.rs` does not model working
+at all. An unreadable list says nothing and is yt-dlp's to complain about.
 
 **Single-video runs first, then playlist runs.** A folder's archive makes the first run win a
 duplicate, and *this one video* is the more specific statement than *this playlist that happens to
 contain it*; it is also the fast half, so somebody watching sees their named picks land before a
 two-hundred-item playlist starts. Fixed rather than derived from the flag, because an order that
-depended on a checkbox would be worse to reason about and worse to test.
+depends on a checkbox is worse to reason about and worse to test.
 
 **Each destination keeps its own archive.** `ARCHIVE_NAME` already says an archive is a fact about
 *this folder* — which songs are in it — carried with it if the folder is copied elsewhere. So a video
-asked for in two folders lands in both, which is what asking for two folders meant.
+asked for in two folders lands in both, which is what asking for two folders means.
 
-Four things about yt-dlp that the split made load-bearing, each read out of its `--help` or its
-behaviour rather than assumed:
+Four things about yt-dlp are load-bearing here, each read out of its `--help` or its behaviour
+rather than assumed:
 
 - **`--print-to-file` appends.** So the record file is removed *before* each run and read-and-deleted
-  *after* it. The shorter arrangement happens to work today; this one is correct either way.
+  *after* it. Removing it only afterwards is correct by accident of ordering and not by rule.
 - **`--batch-file` is an ordinary path argument**, resolved against the working directory and neither
   trimmed nor sanitised — `ARCHIVE_NAME`'s class, not `RECORDS_NAME`'s. So a generated list is passed
   with its folder on it, and the record file is passed as a bare name, and one test asserts both
   halves so the asymmetry cannot be half-remembered.
-- **`#`, `;` and `]` all start a comment** in a batch file. Only `#` was skipped before. Passing a `;`
-  line through untouched cost nothing; *re-emitting* it as a URL would be an extraction error for a
-  line nobody meant to fetch, and a marked list is written back out.
+- **`#`, `;` and `]` all start a comment** in a batch file, and all three are skipped. Passing a `;`
+  line through untouched costs nothing; *re-emitting* it as a URL is an extraction error for a line
+  nobody meant to fetch, and a marked list is written back out.
 - **A marked file is this tool's file, not yt-dlp's.** yt-dlp would read a marker as a comment or as
   part of the URL. Which is the strongest reason an unmarked list is never rewritten.
 
-**`Event::Downloaded` stays one per fetch**, carrying the combined haul. A second would overwrite a
-caller's total with the last run's count alone — and where that run fetched nothing, `job.rs` reads
-zero as *nothing known yet* and leaves the bar sweeping for the whole checking phase of a run that
-succeeded. The `Command` event does fire per run, which is the narration being a narration.
+**`Event::Downloaded` is one per fetch**, carrying the combined haul. A second overwrites a caller's
+total with the last run's count alone — and where that run fetched nothing, `job.rs` reads zero as
+*nothing known yet* and leaves the bar sweeping for the whole checking phase of a run that succeeded.
+The `Command` event does fire per run.
 
-**`fetch` could not previously tell that a watched run had been stopped.** `run::spawn_watched` folds
-a stop into success on purpose — a killed child exits unsuccessfully, and reporting that as a failure
-would tell somebody who pressed Stop that yt-dlp had broken. With one run it did not matter, because
-the answer arrived with the `Downloaded` event and the web UI's flag is latched. With several it
-would have been luck, so the line sink captures the `Flow` it returns. With `|=`, not `=`: collected
+**The line sink captures the `Flow` that `run::spawn_watched` returns**, which is how `fetch` tells
+that a watched run was stopped. `spawn_watched` folds a stop into success on purpose — a killed child
+exits unsuccessfully, and reporting that as a failure would tell somebody who pressed Stop that
+yt-dlp had broken. Across several runs nothing else carries the answer. With `|=`, not `=`: collected
 stderr is replayed through the sink *after* the kill.
 
 **A line may not name a folder outside the one the fetch was pointed at**, and the rule is one
@@ -145,31 +143,28 @@ surface as something that reads like the site said no. Refused rather than quiet
 destination on the second one.
 
 **Three words and not "whatever yt-dlp takes".** A line that could carry a format selector or a
-cookie browser is a much larger promise, and each one would be another axis a run has to be split
-along.
+cookie browser is a much larger promise, and each one is another axis a run has to be split along.
 
 ## A list has an extension of its own, and something opens it
 
-`km-video-fetch.txt` became **`km-video-fetch.kmvf`**, and the extension is registered with
-`km-video-downloader` by both setup programs.
+The list a folder carries for itself is **`km-video-fetch.kmvf`**, and the extension is registered
+with `km-video-downloader` by both setup programs.
 
-**`.txt` was the one thing that could not be said about it.** A list is a document with a grammar —
+**`.txt` is the one thing that cannot be said about it.** A list is a document with a grammar —
 `--playlist`, `--no-playlist` and `--out folder` in front of a URL, all of it in [`list`] — and an
-operating system has no way to learn that from a name it shares with every other text file. So the
-file could not be double-clicked, carried no icon, and sat in a file manager as one more `.txt`. The
-extension is not decoration on the rename; it *is* the rename.
+operating system has no way to learn that from a name it shares with every other text file. A `.txt`
+cannot be double-clicked into this program, carries no icon, and sits in a file manager as one more
+text file.
 
 **Two rules, and they are easy to conflate.** The list a folder carries for itself is matched by
-exact filename, in the destination folder, only where nothing else was named — `folders_own_list` is
-unchanged but for the constant it joins. The association is matched by extension, on any such file
-anywhere, and means only that somebody opened one. Neither rule reaches the other: opening
-`anything.kmvf` does not make it a folder's own list, and a folder's own list is found whether or not
-anything on the machine associates the extension.
+exact filename, in the destination folder, only where nothing else was named. The association is
+matched by extension, on any such file anywhere, and means only that somebody opened one. Neither
+rule reaches the other: opening `anything.kmvf` does not make it a folder's own list, and a folder's
+own list is found whether or not anything on the machine associates the extension.
 
-**Renamed with no fallback.** A folder carrying the old name stops being found until it is renamed by
-hand. The alternative was two names to document, a precedence between them, and a sentence in every
-explanation of the feature for the life of the program — for a tool built here and handed to somebody
-as a folder or an installer, that is a worse trade than one rename.
+**There is no fallback to `.txt`.** A folder carrying that name is not found, and is renamed by hand.
+Two names would mean a precedence between them and a sentence in every explanation of the feature for
+the life of the program.
 
 **And nothing this program writes for itself carries the extension.** `ASKED_NAME`, `SINGLES_NAME`
 and `PLAYLISTS_NAME` keep `.txt`, and a test pins it. Those sit in somebody's folder of songs for the
@@ -183,49 +178,48 @@ two things and no third: the output folder moves to that list's own folder, and 
 on the page, ticked. **Nothing is fetched** — opening a document is somebody saying *look at this*,
 not *do it*.
 
-**The failure this had to remove is the second double-click.** A double-click starts a new process
-every time, and a second one cannot bind the port — on the GUI-subsystem executable, whose standard
-error goes nowhere at all, it exited without a word and left no trace anywhere somebody would think
-to look. That is the same class of failure as `println!` being a crash, below, and it would have been
-found the same way: never from a shell, only from Explorer.
+**The second double-click is what this removes.** A double-click starts a new process every time and
+a second one cannot bind the port — on the GUI-subsystem executable, whose standard error goes
+nowhere at all, it exits without a word and leaves no trace anywhere somebody would think to look.
+That is the same class of failure as `println!` being a crash, below, and it is found the same way:
+never from a shell, only from Explorer.
 
 **The port is the whole mechanism.** No named pipe, no lock file, no single-instance mutex — the
 copy that is already running is already an HTTP server on a known port, so the copy that cannot start
 posts to it and stops. The instance with the window is the instance that answers.
 
-**A list is the optional half of that message, and it took a correction to get there.** The first
-version handed over only where a file association had passed a path, so it answered the second
-double-click of a *list* and left the second double-click of the *program* — somebody opening this
-while it is already open, which is the commoner of the two — dying exactly as described above. The
-condition read as a guard and was really a narrowing.
+**A list is the optional half of that message.** The rule is the plain one — **a copy that cannot
+have the port hands over whatever it was opened with, including nothing at all** — and
+`POST /opened` reads a body with no path as *come forward* rather than as a malformed request.
 
-macOS is what made that visible rather than what caused it: a document arrives there as an Apple
-Event, so the positional is always empty and the whole branch was unreachable on that platform. The
-rule is now the plain one — **a copy that cannot have the port hands over whatever it was opened
-with, including nothing at all** — and `POST /opened` reads a body with no path as *come forward*
-rather than as a malformed request. With nothing to take, the waking is the entire answer, which is
-what the test for it asserts; a 200 that woke nobody would be this program agreeing it had been
-opened and then staying behind whatever is in front of it.
+Handing over only where a file association passed a path answers the second double-click of a *list*
+and leaves the second double-click of the *program* — somebody opening this while it is already open,
+the commoner of the two — dying as described above. Such a condition reads as a guard and is a
+narrowing. It is also unreachable on macOS, where a document arrives as an Apple Event and the
+positional is always empty.
+
+With nothing to take, the waking is the entire answer, which is what the test for it asserts; a 200
+that woke nobody would be this program agreeing it had been opened and then staying behind whatever
+is in front of it.
 
 **And it says so where anybody can hear it.** A successful handoff goes through `say`, so the console
 build tells somebody who typed the command twice why the second one exited without a window, and the
-windowed build drops the line for want of anywhere to put it. That is that function's whole job.
+windowed build drops the line for want of anywhere to put it.
 
-**`POST /opened` grants nothing new**, which is the question worth asking of any new endpoint here.
-Anything that can reach that port can already post `/out` and `/fetch` and make this program write
-files wherever it likes; that is what *it is on loopback, it already writes files wherever it is
-pointed, and it runs as whoever started it* has always meant. One more endpoint on that surface is
-not one more capability.
+**`POST /opened` grants nothing new.** Anything that can reach that port can already post `/out` and
+`/fetch` and make this program write files wherever it likes; that is what *it is on loopback, it
+already writes files wherever it is pointed, and it runs as whoever started it* means. One more
+endpoint on that surface is not one more capability.
 
 **The request is written by hand over a `TcpStream`.** There is no HTTP client in this tree and this
-was not the reason to add one: `reqwest` would bring a TLS stack and a second async runtime into a
+is not a reason to add one: `reqwest` would bring a TLS stack and a second async runtime into a
 program whose whole build story is a handful of crates and no C compiler, to talk to a socket on this
 same machine.
 
 **Every answer from that endpoint carries a marker, refusals included.** Identity and outcome are two
 facts. With the marker only on success, *this program said no* and *that port belongs to something
-else* were indistinguishable from the far end, and a path that was not there got reported as a
-stranger on the port.
+else* are indistinguishable from the far end, and a path that is not there reads as a stranger on the
+port.
 
 **macOS reaches all of this by a different road and ends in the same place.** That platform delivers
 a document to an application as an Apple Event rather than as an argument, so the positional is empty
@@ -234,22 +228,16 @@ second file opened while the application is running is delivered to it by Launch
 by a handoff. Windows never sends that event and macOS never sends the argument, so the two are not
 alternatives to be chosen between.
 
-Both roads were walked on a Mac before this was believed: a `.kmvf` opened with nothing running, and
-a second opened with the window up. The second reuses the running application and never starts a
-process to hand anything over, which is the platform doing by itself what the handoff does on
-Windows.
-
-**One case on macOS is improved rather than solved, and it is written down here rather than left to
-be discovered.** Where the copy holding the port is one LaunchServices does not know about — the bare
-executable, or a `cargo run`, rather than the bundle — a double-clicked list starts the bundle as a
-second process, and *that* process is the one the Apple Event is addressed to. It exits at the failed
-bind, before an event loop exists to receive it, so it hands over with no path: the window comes
-forward and the list is not shown. Better than the silent death it used to be, and short of right.
+**One case on macOS is improved rather than solved.** Where the copy holding the port is one
+LaunchServices does not know about — the bare executable, or a `cargo run`, rather than the bundle —
+a double-clicked list starts the bundle as a second process, and *that* process is the one the Apple
+Event is addressed to. It exits at the failed bind, before an event loop exists to receive it, so it
+hands over with no path: the window comes forward and the list is not shown.
 
 Closing it means running an event loop in a process whose whole job is to exit — construct an
 `NSApp`, wait a bounded moment for `Event::Opened`, hand over whatever arrived — for a case that
 needs a copy running outside LaunchServices' knowledge, which is a thing developers have and users do
-not. Not paid for yet; the shape of the fix is recorded so the decision is a decision.
+not. Not paid for.
 
 **The opened list is drawn only where it is not already the folder's own** — which is the usual case,
 since opening one moves the folder to where it sits. Two rows would be this program offering the same
@@ -260,12 +248,12 @@ file twice, under two names, with two counts to reconcile.
 `main` returns a `Result`, and an `Err` out of it goes to standard error — the right arrangement
 everywhere except the one place this program is actually started from. A GUI-subsystem executable has
 a null standard error, and an application bundle launched by LaunchServices has one nobody will read.
-So the program vanished on startup and left nothing behind, which is the same silence `say` exists
-for and the same one the handoff removed for a taken port.
+So the program vanishes on startup and leaves nothing behind, which is the same silence `say` exists
+for and the same one the handoff removes for a taken port.
 
 **The handoff covers the common cause and this covers the rest**: a port held by a program that is
-*not* this one, a directory that cannot be made, a runtime that will not start. Rare, and each was
-until now indistinguishable from the program not existing.
+*not* this one, a directory that cannot be made, a runtime that will not start. Rare, and each is
+otherwise indistinguishable from the program not existing.
 
 **The check is on the terminal, not on the build.** `Shell::Console`, the `desktop` feature and
 `windows_subsystem` are all proxies for *can anybody read what was printed*, and each is wrong
@@ -274,7 +262,7 @@ file manager has none. `stderr().is_terminal()` asks the real question, so the d
 where the message would otherwise have gone nowhere and never as a second copy of something already
 on screen.
 
-**macOS only, and the asymmetry is deliberate.** `osascript` is in the base system and this program
+**macOS only.** `osascript` is in the base system and this program
 already shells out to `open` for a browser — one more child, no dependency, the shape `opener.rs` is
 already in. Windows would want `MessageBoxW` and therefore `windows-sys`, the first such crate in a
 tree whose whole build story is a handful of crates and no C compiler; and it already has the answer
@@ -297,28 +285,28 @@ yields a package that installs cleanly and an application LaunchServices files u
 In both cases the first person to find out is somebody double-clicking a list.
 
 So the Windows driver reads its keys back with `reg.exe` and the macOS driver reads the document types
-out of `Info.plist` with `plutil`. **Out of the Payload, not out of the staging directory**, which is
-the whole point of reading anything back: what is proved has to be what somebody receives, and a
-correct staged bundle beside a wrong archive is exactly the failure the round trip is for.
+out of `Info.plist` with `plutil`. **Out of the Payload, not out of the staging directory**: what is proved has to be what somebody
+receives, and a correct staged bundle beside a wrong archive is exactly the failure the round trip is
+for.
 
 Four things are asserted, and each is one that can be wrong on its own: the plist parses at all; the
 type the bundle *declares* and the type its document entry *opens* are the same string, a mismatch
 being the macOS shape of an extension registered to a ProgId with no command behind it; there is
 exactly one filename extension; and `LSHandlerRank` is `Owner` beside a `CFBundleIdentifier` for
 LaunchServices to file the declaration under. **The extension is read rather than repeated** — one
-place decides it for this platform, and a copy typed into the check would agree with that place right
-up until the day it did not. The Windows driver reads its own out of the `.iss` for the same reason.
+place decides it for this platform, and a copy typed into the check is free to drift from it. The
+Windows driver reads its own out of the `.iss` for the same reason.
 
-**And the assertions were watched to fail.** Each was tried against a deliberately broken
-`documents()` — a mismatched identifier, a dropped tag specification, an unbalanced tag — because a
-check that has never been seen to refuse anything is not known to check anything.
+**Each assertion is watched to fail**, against a deliberately broken `documents()` — a mismatched
+identifier, a dropped tag specification, an unbalanced tag — because a check that has never been seen
+to refuse anything is not known to check anything.
 
 ## The bundle states the macOS floor, and two files agree about it
 
-`11.0` — what the wry/tao stack needs — used to live only in `distribution.xml`, which binds a `.pkg`
-install and nothing else. But that is one of two ways this is handed over; the other is the staged
-folder, and a bundle without `LSMinimumSystemVersion` dropped on an older Mac fails in the dynamic
-loader before `main`, which is the same failure with none of the explanation.
+`11.0`, what the wry/tao stack needs, is stated in both places this is handed over by.
+`distribution.xml` binds a `.pkg` install and nothing else; the other way is the staged folder, and a
+bundle without `LSMinimumSystemVersion` dropped on an older Mac fails in the dynamic loader before
+`main`, which is the same failure with none of the explanation.
 
 So the bundle states it too, out of `common.sh`'s `dist_min_macos`. Neither copy can be derived from
 the other — one is an XML attribute `productbuild` reads, the other a plist key LaunchServices reads —
@@ -327,9 +315,9 @@ refuse a build where the two disagree.
 
 ## The macOS installer's conclusion pane is where a GUI-only install reads
 
-`dist_installed_readme macos` is written into the **fetch** component's payload, and that is correct
-— it lands in `/usr/local/km-video-tools` beside the program it describes. The consequence is that
-somebody who unticks `km-video-fetch` installs no README anywhere and never reads a word of it.
+`dist_installed_readme macos` is written into the **fetch** component's payload, landing in
+`/usr/local/km-video-tools` beside the program it describes. The consequence is that somebody who
+unticks `km-video-fetch` installs no README anywhere and never reads a word of it.
 
 **Not fixed by putting one beside the application.** A loose `README.txt` in `/Applications` is
 against the platform, and inside the bundle it is a file nobody opens. The Installer's own conclusion
@@ -343,17 +331,16 @@ moment at all.
 back, check, re-encode — and calls back as it goes. `km-video-fetch` renders those events as lines;
 `km-video-downloader` renders them as a progress bar and a list.
 
-**This was the rule above being tested for the first time, and it did not hold.** All of that
-sequence used to live in `km-video-fetch`'s own `run()`, interleaved with the printlns reporting it —
-a perfectly good shape until a second front end wanted the same sequence, at which point it was
-unreusable, because a web page cannot call a function that prints.
+**A function that prints cannot be reused by a second front end.** Keeping the sequence in
+`km-video-fetch`'s own `run()`, interleaved with the printlns that report it, is a perfectly good
+shape until a web page wants the same sequence — and a web page cannot call a function that prints.
 
-Two consequences worth stating, because they are what keeps the two faces honest:
+Two consequences keep the two faces honest:
 
 - **The events are a narration, not a state machine.** They arrive in the order things happen and
   each is complete in itself. A caller that ignores every one of them still gets the `Outcome`.
 - **`km-video-core` decides no wording.** Every sentence a person reads is in the crate that shows
-  it, which is why the command line's output could move without changing a word of it.
+  it, so the command line's output can move without changing a word of it.
 
 The line sink also returns a `Flow`, which is how Stop reaches a running fetch. That is a second job
 for a closure already being called at every point where stopping is possible — as against a flag the
@@ -398,12 +385,13 @@ is no `prefers-color-scheme` block: this program has one appearance and states i
 
 ## It is an application with a window, not a program that prints an address
 
-**This reverses the first decision made about it**, which was that a browser tab would be the whole
-user interface — on the grounds that km-admin's `desktop` feature wants `km-tray`, `km-console`,
-`km-osopen` and `km-logfile`, all the karaoke app's crates. That was true of two of them and wrong
-about what it cost: double-clicking the executable opened a console showing an address, which is not
-an application. Of the four, the tray is genuinely optional, `opener.rs` replaces one in fifteen
-lines, and the console shim is replaced by [`say`] not being `println!` (below).
+**A browser tab is not the whole user interface.** Double-clicking the executable to be shown a
+console with an address in it is not an application.
+
+The cost of a window looks like four of the karaoke app's crates, because that is what km-admin's
+`desktop` feature wants: `km-tray`, `km-console`, `km-osopen` and `km-logfile`. Only two are real.
+The tray is genuinely optional, `opener.rs` replaces one in fifteen lines, and the console shim is
+replaced by [`say`] not being `println!` (below).
 
 So `desktop` is a feature and it is **on by default**, because the point of a default is what
 somebody gets without knowing there was a choice. `--no-default-features` still builds the
@@ -419,8 +407,8 @@ alike, so there is never a second front end to keep in step. `--browser` asks fo
 
 `std::io::_print` **panics** on a write failure — `failed printing to stdout` — and a
 GUI-subsystem executable on Windows has a null standard output handle that fails every write. Left
-as `println!`, every double-click would abort the process, and it would never once fail when run
-from a shell, which is where it would have been tested.
+as `println!`, every double-click aborts the process, and it never once fails when run from a shell,
+which is where it would be tested.
 
 `say()` writes and drops the error. There is nowhere to report an error about there being nowhere to
 report.
@@ -446,31 +434,30 @@ which is exactly what that call exists to pass along. It also buys nothing there
 parent having a console already.
 
 **Hide the console wherever the child's output is captured or discarded; never where the child is
-handed a terminal on purpose.** Every other call already pipes or nulls its output, so the window was
-never showing anybody anything.
+handed a terminal on purpose.** Every other call already pipes or nulls its output, so the window
+shows nobody anything.
 
-This was got wrong once, and the shape of the mistake is worth keeping. The helper and the reasoning
-above both existed, applied to `ffmpeg` and `ffprobe`, while the program was still console-subsystem
-and it was merely tidy. The commit that made the downloader a real application changed the subsystem
-without extending the helper to `run.rs`, so the case the comment described came true in the one
-module that did not have it.
+**Changing the subsystem is what makes this load-bearing.** While a program is console-subsystem the
+helper is merely tidy and a spawn site without it costs nothing; the moment the executable is
+GUI-subsystem, every such site is a black window. A subsystem change reaches every spawn in the tree
+or it reaches none of them.
 
 ## The icon is the same drawing under a fifth palette
 
 Angular bands, a near-black plate, `KM` with a coloured M: the karaoke app's mark, because these
 programs are run beside its and belong to it. **A vermilion lead**, chosen by hue distance rather
 than by taste: its four sit at 45°, 148°, 196° and 324°, and this is 11° — 34° clear of the
-nearest. The first attempt, a cyan at 180°, was 16° from the package builder's blue, which is
-exactly the confusion a per-program palette exists to prevent.
+nearest. A cyan at 180° is refused for the same reason: 16° from the package builder's blue, which
+is exactly the confusion a per-program palette exists to prevent.
 
 The other opening, around 260°, is a violet and is refused: the tile's own ground is a deep violet
 and its middle band a magenta, so a violet lead would make the whole icon one hue with nothing to
 catch at 16 pixels.
 
 `crates/km-video-downloader/examples/icon.rs` draws it and writes `icon/`. Its geometry is a copy of
-that repository's renderer, which reads colours out of `km_display::theme::Theme` and types out of
-SDL, neither reachable from here. **The copy can drift and that is fine**: these are different
-programs' icons and are supposed to differ.
+the karaoke app's renderer, which reads colours out of `km_display::theme::Theme` and types out of
+SDL, neither reachable from here. **The copy may drift**: these are different programs' icons and are
+supposed to differ.
 
 The `.ico` goes inside the Windows executable through `build.rs`, which is the only way Explorer,
 the Start menu and the taskbar have an icon *before* the process starts. The `.icns` is written
@@ -495,8 +482,7 @@ say which. The list offers the nine; the field accepts the rest.
 ## The folder picker is a server-side listing
 
 **A browser will not tell a page where a picked file lives** — a file input gives contents, not
-locations, and that is a security property rather than an oversight. There is no folder input at all.
-So the listing is done on this side: the server reads a directory, the page draws it, a click asks
+locations — and there is no folder input at all. So the listing is done on this side: the server reads a directory, the page draws it, a click asks
 for the next one.
 
 That grants nothing new. The program is on loopback, it already writes files wherever it is pointed,
@@ -512,19 +498,18 @@ browser sends is the file's bytes, and the bytes are all that is wanted.
 
 **`rust-toolchain.toml` names one `x.y.z` version, and it is the only place the number is decided.**
 
-This entry used to say the opposite, and the reversal is the point. The argument against a pin was
-that this is a standalone tool other people compile with whatever their distribution ships, so one
-turns "I have Rust installed" into "rustup will now download a second toolchain". That is the right
-answer for a library and this is not one — two programs and the crate they share, every member
-`publish = false`, built here and handed to somebody as a folder or an installer. Nothing compiles
-against it, so the pin is imposed on nobody but whoever works on it.
+The argument against a pin is that this is a standalone tool other people compile with whatever
+their distribution ships, so one turns "I have Rust installed" into "rustup will now download a
+second toolchain". That is the right answer for a library and this is not one — two programs and the
+crate they share, every member `publish = false`, built here and handed to somebody as a folder or an
+installer. Nothing compiles against it, so the pin is imposed on nobody but whoever works on it.
 
-**What the floating channel cost was not reproducibility in the abstract.** `task lint` is clippy
-with `-D warnings`, so a lint introduced upstream on a Tuesday fails a branch that changed nothing
+**A floating channel does not cost reproducibility in the abstract.** `task lint` is clippy with
+`-D warnings`, so a lint introduced upstream on a Tuesday fails a branch that changed nothing
 relevant, and "passes locally" means only "passes on whatever this machine last fetched". It also
-broke outright: `rust-version` was inherited from the karaoke app's pin at 1.98.1 while `stable` on
-the machine was still 1.98.0, and every cargo command in the workspace refused before it compiled
-anything. A pin is what makes those two numbers one decision instead of a race.
+breaks outright: a `rust-version` of 1.98.1 inherited from the karaoke app's pin, against a `stable`
+of 1.98.0, makes every cargo command in the workspace refuse before it compiles anything. A pin is
+what makes those two numbers one decision instead of a race.
 
 **The number propagates rather than being repeated.** `.github/workflows/ci.yml` installs with
 `rustup toolchain install --no-self-update`, which resolves the file, `components` and all;
@@ -533,8 +518,8 @@ read the file, so keeping it would mean the version written twice. `Cargo.toml`'
 the one copy that no format lets us derive, and `tools/dev/check-toolchain-pin.sh` — which
 `task check` runs — fails naming a disagreement, a floating channel, or a returning `dtolnay` step.
 
-The cost is that a bump is now a commit rather than a `rustup update`. That is the trade
-the karaoke app made first, and its arrangement is what this copies.
+The cost is that a bump is a commit rather than a `rustup update`. The arrangement is copied from
+the karaoke app.
 
 ## `dist/` is output, and nothing else writes there
 
@@ -553,46 +538,44 @@ asks cargo.
 
 `dist_fresh_dir` clears only the folder it is about to write, and a folder's name carries its version
 — so a build of 1.8.0 does not replace 1.7.0, it lands beside it. `task clean:old` is what takes the
-older one away, and until it exists something has to decide which of the two is *the* staged build.
+older one away, and until it is run something has to decide which of the two is *the* staged build.
 
-**Picking the first glob match is the wrong answer, and it fails silently.** That is what
-`tools/dist/bin.sh` and `tools/platform/macos/installer.sh` each did, in two private copies of one
-`staged_dir` function: they globbed `<app>-*-<triple>`, and a glob expands in sorted order, so with
-both versions present they returned 1.7.0. Nothing downstream disagreed. `bin.sh` gathered the old
-executables and read the version out of one of *them*; both setup programs then read it out of that
-payload in turn. The result was an installer correctly labelled `1.7.0` carrying a build nobody asked
-for, on both platforms, with no failure anywhere for anybody to notice — which is the same class of
-mistake as a cleaner that reports success while matching nothing.
+**Picking the first glob match is the wrong answer, and it fails silently.** A glob of
+`<app>-*-<triple>` expands in sorted order, so with 1.7.0 and 1.8.0 both present it returns 1.7.0,
+and nothing downstream disagrees: `bin.sh` gathers those executables and reads the version out of one
+of *them*, and both setup programs then read it out of that payload in turn. The result is an
+installer correctly labelled `1.7.0` carrying a build nobody asked for, on both platforms, with no
+failure anywhere for anybody to notice — the same class of mistake as a cleaner that reports success
+while matching nothing.
 
 `dist_staged_dir` in `tools/dist/common.sh` names the folder instead of searching for one, out of
 `dist_pkg_version` — one number, because every crate here is `version.workspace = true`.
 
 **This is not a breach of "from a binary, never a manifest."** That rule answers *what is this
-artifact*, and it still does: the version printed, the folder named by `tools/dist/cmd.sh`, and the
-number on every installer all still come from a binary's own `--version`. The manifest answers a
-different question — *which artifact did we mean* — and the two cannot contradict each other, because
-the folder's name was built out of that binary's answer in the first place. What changed is only the
-failure: a current build that is not staged now says so, where before it was quietly replaced by an
-older one.
+artifact*: the version printed, the folder named by `tools/dist/cmd.sh`, and the number on every
+installer all come from a binary's own `--version`. The manifest answers a different question —
+*which artifact did we mean* — and the two cannot contradict each other, because the folder's name
+was built out of that binary's answer in the first place. A current build that is not staged says so
+rather than being quietly replaced by an older one.
 
 ## `task clean` is a script, because Task's shell has no `rm`
 
 Task runs every command through its own embedded POSIX shell, which has `for`, `case` and parameter
 expansion everywhere but no `rm` — that is an external command, and there is no `rm.exe` on Windows
-any more than there is a `sed`. So `clean: rm -rf dist`, which stood in `Taskfile.yml`, was
+any more than there is a `sed`. So a `clean: rm -rf dist` written in `Taskfile.yml` is
 
     "rm": executable file not found in $PATH
     task: Failed to run task "clean": exit status 127
 
-from a PowerShell or a `cmd`. It appeared to work only from a Git Bash — the one shell whose `PATH`
-lends Task a coreutils it does not otherwise have — so the task was broken in precisely the situation
-the `SH` variable exists to serve, and looked fine in the one it does not need to.
+from a PowerShell or a `cmd`. It works only from a Git Bash — the one shell whose `PATH` lends Task
+a coreutils it does not otherwise have — so such a task is broken in precisely the situation the `SH`
+variable exists to serve and looks fine in the one it does not need to.
 
-All three clean tasks are `tools/dist/clean.sh` now. The Taskfile chooses which script to run, which
-is what it already did for staging, and the deleting happens where coreutils exist. Inherited from
-the karaoke app, which hit this first and whose `clean:old` this one is a port of.
+All three clean tasks are `tools/dist/clean.sh`. The Taskfile chooses which script to run, which is
+what it does for staging, and the deleting happens where coreutils exist. Inherited from the karaoke
+app, whose `clean:old` this is a port of.
 
-**`--old` has no special cases, and that is the property to keep.** An entry is removed only when its
+**`--old` has no special cases.** An entry is removed only when its
 name begins with its app's own name followed by a version that is not the wanted one, so anything
 unrecognized survives without being named here: the versionless `dist/bin/<platform>`, the generated
 directory the Windows installer clears itself, the macOS bundle whose number lives in its
@@ -619,6 +602,73 @@ Windows.
 
 ## Nothing committed describes the machine it was written on
 
-Inherited from the karaoke app and worth keeping: **no tracked file names a local drive or folder, a
-home LAN address, personal hardware, or a person** — not in prose, not in a comment, not as test
+Inherited from the karaoke app: **no tracked file names a local drive or folder, a home LAN
+address, personal hardware, or a person** — not in prose, not in a comment, not as test
 data. A sample is invented; a reproduction step names a variable.
+
+## How a document in this repository is written
+
+**A document states the rule and the reason somebody would need in order not to undo it. It does not
+narrate how the rule was arrived at.**
+
+What that excludes, in order of how often it creeps back:
+
+- **What something used to be.** No former names, former defaults, former behaviors, no "this
+  reverses", "this used to say", "since renamed", "no longer". A reader arrives at the repository as
+  it is; a sentence about a state that is gone costs them a paragraph and tells them nothing they
+  can act on. This covers a decision that was reversed as much as a spelling that changed.
+- **Chronology.** No milestone numbers, no dates in headings, no ordering of when things were found.
+  A date belongs in the body only where a reader needs to know when a measurement was taken.
+- **Meta-commentary on the writing.** Any sentence whose subject is the document: "recorded rather
+  than glossed", "and that is the record of it", "worth saying out loud".
+- **Reassurance and common sense.** A paragraph explaining that a first run works, or that a
+  diagnostic is optional, is a paragraph nobody needed.
+- **Appositive tails.** "…, which is what makes X safe", "…, and that is deliberate rather than an
+  accident" — the clause after the comma usually restates the clause before it.
+
+What survives is the imperative and the trap. **A heading that instructs is not verbose** —
+`Nothing committed describes the machine it was written on` *is* the content. A heading that merely
+describes is trimmed to a plain noun phrase.
+
+**The keep-test for a paragraph**: would a reader who deleted it either re-derive a wrong answer, or
+break something silently? Anything in the past tense about a decision that no longer holds fails it.
+When unsure, keep the sentence and delete the paragraph around it.
+
+**This applies to code comments too**, on the same test. A comment saying why a line is the way it
+is earns its place; one saying what the line used to be does not.
+
+**A heading is quoted from outside `docs/`.** `.github/workflows/ci.yml` and `rust-toolchain.toml`
+each cite one by its full text, and nothing validates the citation. Grep for a heading before
+rewriting it, and change the citation in the same commit.
+
+**The em-dash stays.** It is how a parenthetical mechanism is punctuated here. What goes is the
+clause after it that restates the clause before it, not the dash.
+
+## What a user reads is written in plain application language
+
+**Every surface a person uses speaks the plain, conventional English of a software application.**
+Short labels, ordinary sentences, standard terminology. Three readers, and the register is theirs
+rather than the writer's:
+
+| Reader | Surfaces | Register |
+|---|---|---|
+| somebody fetching videos | the window's pages, its alerts, the installer panes | labels; at most one short sentence |
+| an operator setting it up | `--help`, console output, the folder picker | a sentence or two, consequence first |
+| a maintainer reading the source | code comments, `docs/` | the reasoning, at whatever length it takes |
+
+**A page is not a comment.** Where the reasoning behind a control is worth keeping, it belongs in the
+`{# #}` or `//` beside the markup. It does not belong on screen, where it costs a reader who came to
+press a button.
+
+**Out, on any surface in the first two rows**: aphorism, inverted sentences, rhetorical contrast of
+the *X is not Y, it is Z* shape, em-dash asides, and any sentence whose subject is the design rather
+than the thing the reader is doing.
+
+**`--help` is one of those surfaces.** clap builds it out of the doc comments on the `Cli` structs in
+`km-video-fetch/src/main.rs` and `km-video-downloader/src/lib.rs`, so a `///` there is read by an
+operator and not only by a maintainer. Reasoning goes in a `//` comment above it, where the `///`
+keeps the plain statement.
+
+**Plain does not mean shorter.** A fact a reader acts on survives the rewrite: that a browser cannot
+hand a page a folder path is why the picker lists server-side, and it stays. What goes is the
+argument around the fact.

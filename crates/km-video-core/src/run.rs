@@ -15,11 +15,11 @@
 //! failure the ffmpeg call in [`crate::profile`] has to spawn a thread to avoid, where a child fills
 //! a pipe nobody is draining and both processes stop.
 //!
-//! **A web page has no terminal to hand over**, so [`spawn_watched`] pipes after all — and it is
-//! therefore the one function here that has to answer the paragraph above rather than benefit from
-//! it. It does so the same way `profile::transcode` does: **each pipe is drained by a thread of its
-//! own**, so neither can fill while nothing reads it. The caller's line sink runs on the stdout
-//! thread. Nothing about [`spawn`] changes; the two exist side by side because the choice is real.
+//! **A web page has no terminal to hand over**, so [`spawn_watched`] pipes after all, and is
+//! therefore the one function here that has to avoid that failure rather than sidestep it. It does
+//! so the same way `profile::transcode` does: **each pipe is drained by a thread of its own**, so
+//! neither can fill while nothing reads it. The caller's line sink runs on the stdout thread.
+//! [`spawn`] is unaffected; the two exist side by side because the choice is real.
 //!
 //! # The console window is the second half of that same choice
 //!
@@ -185,12 +185,12 @@ pub enum Flow {
 /// The same contract as [`spawn`] — a non-zero exit is reported rather than raised — and the same
 /// return value. What differs is where yt-dlp's words go: to `on_line` rather than to a terminal.
 ///
-/// **Both pipes are drained, and this is the whole reason the function is not three lines.** A child
-/// whose stderr fills while nothing reads it stops, and so does the parent waiting on it; "the
-/// download hangs on some videos" is not a bug worth discovering later.
+/// **Both pipes are drained.** A child whose stderr fills while nothing reads it stops, and so does
+/// the parent waiting on it; "the download hangs on some videos" is not a bug worth discovering
+/// later.
 ///
-/// The split of labour is the one `profile::transcode` already uses, and it is deliberate rather
-/// than incidental: **stdout is read on this thread** and stderr on a thread of its own that only
+/// The split of labour is the one `profile::transcode` already uses: **stdout is read on this
+/// thread** and stderr on a thread of its own that only
 /// collects. That is what keeps `on_line` off any thread but the caller's — so it need not be
 /// `Send`, and a caller may hand over a closure holding whatever it likes. The price is that
 /// stderr arrives in a block at the end rather than interleaved; with `--newline` in effect

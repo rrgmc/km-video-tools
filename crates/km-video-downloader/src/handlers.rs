@@ -363,9 +363,9 @@ impl Form {
     /// two links beside a picked file of forty means forty-two, and duplicates are dropped rather
     /// than fetched twice.
     ///
-    /// **`list::merge` rather than a `dedup` here**, and the difference is not cosmetic:
-    /// `Vec::dedup` drops only *consecutive* equals, so a link present in both the textarea and the
-    /// picked file used to survive it and be fetched twice — the sentence above was not true.
+    /// **`list::merge` rather than a `dedup` here.** `Vec::dedup` drops only *consecutive* equals,
+    /// so a link present in both the textarea and the picked file survives it and is fetched twice,
+    /// which makes the paragraph above untrue.
     ///
     /// **The order is the order of precedence**, because merging keeps a link's first mention and
     /// the marker that came with it: what somebody typed or picked on the page just now, then the
@@ -545,8 +545,8 @@ mod tests {
             stopped: false,
         };
 
-        // The one this was got wrong on first: a 403 with nothing downloaded is not a folder that
-        // was already up to date, and saying so was a quiet lie.
+        // A 403 with nothing downloaded is not a folder that was already up to date, and reporting
+        // it as one is a quiet lie.
         let mut failed = outcome(0, true);
         failed.completed = false;
         assert!(summarize(&failed, false).contains("could not fetch anything"));

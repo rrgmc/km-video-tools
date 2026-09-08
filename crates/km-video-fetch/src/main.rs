@@ -48,7 +48,7 @@ struct Cli {
     /// Read URLs from a file, one per line.
     ///
     /// With no URLs and no file named, a `km-video-fetch.kmvf` in the destination folder is read as
-    /// this — so a folder can carry its own list, the way it already carries its own archive.
+    /// this, so a folder can carry its own list.
     ///
     /// A line may start with `--playlist`, `--no-playlist` or `--out FOLDER` to say what that one
     /// link is and where it goes, `FOLDER` being under `--out`. A list that says none of those is
@@ -217,9 +217,8 @@ fn run() -> Result<bool> {
 
 /// Turns what happened into what is printed, and holds the little state that needs.
 ///
-/// **This is the whole of what makes this a command line rather than a page.** Every sentence the
-/// tool says is here; `km-video-core` decides nothing about wording, and the web UI renders the same
-/// events into HTML without either of them knowing about the other.
+/// **Every sentence the tool says is here.** `km-video-core` decides nothing about wording, and the
+/// web UI renders the same events into HTML without either of them knowing about the other.
 struct Reporter {
     /// Whether the yt-dlp command line is worth showing.
     show_command: bool,

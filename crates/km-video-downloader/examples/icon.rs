@@ -16,9 +16,9 @@
 //! So this is the **same drawing under a fifth palette**: angular bands of color filling the tile, a
 //! near-black plate over them, and `KM` on the plate — the K in near-white, the M in the hue that
 //! names the program. The karaoke app leads with amber for the machine, blue for the package
-//! builder, green for the offline remote and magenta for km-admin; this leads with a **cyan** none
-//! of them uses, which is the only thing that has to differ for the icons to be tellable apart at
-//! 16 pixels.
+//! builder, green for the offline remote and magenta for km-admin; this leads with a **vermilion**
+//! none of them uses, which is the only thing that has to differ for the icons to be tellable apart
+//! at 16 pixels.
 //!
 //! # Own code rather than a shared one
 //!
@@ -67,14 +67,14 @@ const LETTER: [f32; 3] = rgb(0xEC, 0xEF, 0xF4);
 
 /// **The fifth lead, and this program's own.**
 ///
-/// A **vermilion**, and it is picked by hue distance rather than by taste. The four in
-/// the karaoke app sit at 45° (the machine's amber `FFC107`), 148° (the remote's green `57E79A`),
-/// 196° (the package builder's blue `5FD3FF`) and 324° (km-admin's magenta `C43A8E`). This is 11°,
-/// which is 34° from its nearest neighbour.
+/// A **vermilion**, picked by hue distance rather than by taste. The four in the karaoke app sit at
+/// 45° (the machine's amber `FFC107`), 148° (the remote's green `57E79A`), 196° (the package
+/// builder's blue `5FD3FF`) and 324° (km-admin's magenta `C43A8E`). This is 11°, which is 34° from
+/// its nearest neighbour.
 ///
-/// **The first attempt was a cyan at 180°, and it was wrong**: that is 16° from the package
-/// builder's blue and 32° from the remote's green — two icons that would have been hard to tell
-/// apart on one taskbar, which is the single thing a per-program palette exists to prevent.
+/// **A cyan at 180° is refused**: that is 16° from the package builder's blue and 32° from the
+/// remote's green — two icons hard to tell apart on one taskbar, which is the single thing a
+/// per-program palette exists to prevent.
 ///
 /// The gaps between the four leave two real openings: about 260° and about 5°. **260° is a violet
 /// and is refused**, because the tile's own ground is the deep violet `GROUND` and its middle band
@@ -82,8 +82,8 @@ const LETTER: [f32; 3] = rgb(0xEC, 0xEF, 0xF4);
 /// A warm lead gives the tile a magenta-to-vermilion run instead, which is the contrast the bands
 /// are there for.
 ///
-/// Bright enough that the M clears a 4.5:1 contrast floor against the plate, which is a constraint
-/// rather than a preference: measured against `PLATE_COLOR` it is about 6.3:1.
+/// Bright enough that the M clears a 4.5:1 contrast floor against the plate: measured against
+/// `PLATE_COLOR` it is about 6.3:1.
 const LEAD: [f32; 3] = rgb(0xFF, 0x5C, 0x38);
 
 // -- the tile -------------------------------------------------------------------------------------

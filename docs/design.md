@@ -1,8 +1,5 @@
 # How `km-video-fetch` works, and why it works that way
 
-Carried out of the karaoke app's `docs/architecture/video.md` when the tool moved. Everything here
-was learned by running it.
-
 ## What it owns is the argv, and only the argv
 
 It shells out and reads back what happened; it decodes nothing. Argument-building is a module of its
@@ -12,9 +9,8 @@ it passes, and that is only assertable in a test if choosing them is separable f
 ## The three arguments that matter
 
 A format cap at 1080, then a **sort** ranking what is left by codec — a sort rather than a longer
-fallback chain, and that is a real choice: **a chain that runs out of alternatives fails the download,
-whereas a sort takes the nearest thing and lets the check afterwards say what was settled for.** A
-song that arrived as VP9 is still a song.
+fallback chain: **a chain that runs out of alternatives fails the download, whereas a sort takes the
+nearest thing and lets the check afterwards say what was settled for.**
 
 And a conditional output template, so a video with a known artist is `Artist - Title.mp4` and one
 without is `Title.mp4` rather than `NA - Title.mp4`.
@@ -32,12 +28,12 @@ https://youtu.be/aaaaaaaaaaa
 --playlist --out anime/openings https://www.youtube.com/playlist?list=PLzzzz
 ```
 
-A line that says nothing takes the run's own answer, so a list with no markers in it means exactly
-what it has always meant. Nothing sniffs a URL's shape to decide: a link that looks precisely like a
-playlist has still not said it is one.
+A line that says nothing takes the run's own answer, so a list with no markers in it means to this
+tool what it means to yt-dlp. Nothing sniffs a URL's shape to decide: a link that looks precisely
+like a playlist has still not said it is one.
 
-Two consequences worth knowing before writing such a list. **`--limit` is per playlist, not a budget
-for the run** — it always was: five playlists at `--limit 10` is up to fifty videos. And it selects
+Two consequences before writing such a list. **`--limit` is per playlist, not a budget for the
+run**: five playlists at `--limit 10` is up to fifty videos. And it selects
 by *index*, before the archive filters, so a video already fetched by a line of its own still
 occupies a slot in the `1:N` of a playlist that contains it.
 
@@ -52,10 +48,10 @@ https://youtu.be/aaaaaaaaaaa
 --out anime https://youtu.be/bbbbbbbbbbb
 ```
 
-The two are different in kind and that is why both exist. A *marker* says what one line is, and
-costs a yt-dlp run per distinct answer, because `--yes-playlist` and `-P` are properties of an
-invocation. A *header setting* is one field of the plan every run shares, so it splits nothing —
-which is the whole reason the header can carry `--cookies-from-browser` while a line may not.
+The two are different in kind. A *marker* says what one line is, and costs a yt-dlp run per
+distinct answer, because `--yes-playlist` and `-P` are properties of an invocation. A *header
+setting* is one field of the plan every run shares, so it splits nothing — and so the header can
+carry `--cookies-from-browser` while a line may not.
 
 The header is every line before the first link, blanks and comments included, and it ends at the
 first line that is not a setting. That one rule is what keeps a bare `--playlist` unambiguous: at
@@ -67,9 +63,8 @@ saying it is not a URL, in the words of the program that would know.
 `--sort` and `--cookies-from-browser` take a value, so *not given* is a thing a command line can
 say and the list is heard. A flag cannot: off and unset are the same `bool`, on a command line as
 much as in a form, so those are the or of the two and a list that says `--subs` cannot be talked
-out of it. In the window the same settings arrive as **ticked boxes** rather than as behaviour —
-the page shows what the list asked for and lets it be changed, which is the only arrangement
-where what is on the screen and what will happen cannot disagree.
+out of it. In the window the same settings arrive as **ticked boxes** rather than as behaviour, so
+the page shows what the list asked for and lets it be changed.
 
 A header may not say `--out` (the destination is where the file lives, and a list that moved its
 own folder could not be copied anywhere), nor `--dry-run`, `--strict` or `--show-command` (which
@@ -86,29 +81,28 @@ Both because they change the file's *stream layout* rather than its content:
   reported as a file the machine cannot play. `probe.rs` skips a stream marked `attached_pic`, so
   there are two guards rather than one; a file fetched by other means can still arrive carrying cover
   art.
-- **`--embed-subs`.** It muxes a `mov_text` stream, and the karaoke app decided not to index a
-  video's captions. Available behind `--subs` for anyone who wants them.
+- **`--embed-subs`.** It muxes a `mov_text` stream, and the karaoke app does not index a video's
+  captions. Available behind `--subs` for anyone who wants them.
 
 **Restricting filenames to ASCII is refused for a different reason**: this material is Japanese and
 Korean, the stem is the title of last resort, and mangling it is worse than a long one.
 `--windows-filenames` is forced on **every** platform instead, so a corpus fetched on one machine and
 one fetched on another are named identically.
 
-## Two yt-dlp behaviors found the hard way
+## The record file's name goes through the output-template machinery
 
-Both cost a debugging session, and neither is guessable from the documentation. **The record file's
-name is put through yt-dlp's output-template machinery rather than taken as a path.** Consequently:
+Neither of these is guessable from the documentation. **The record file's name is put through
+yt-dlp's output-template machinery rather than taken as a path.** Consequently:
 
-- **A filename-length limit shortens a long *absolute* path by dropping directory components.** The
-  record file was written one folder above the videos, and the tool then reported it had fetched
-  nothing at all — because that is where it looked. **A run that had downloaded everything correctly
-  said `nothing to fetch`.**
+- **A filename-length limit shortens a long *absolute* path by dropping directory components**, which
+  writes the record file one folder above the videos and leaves the tool reporting it fetched nothing
+  at all, because that is where it looks. **A run that downloaded everything correctly says
+  `nothing to fetch`.**
 - **Sanitisation strips a leading dot**, so a hidden record file is written unhidden.
 
-The fix is one line and reads like a triviality without the reason attached: the record file is named
-**relatively and without a dot**, and resolved against the output directory. The download archive is
-*not* affected — that argument is an ordinary path — which is why it keeps its dot and stays hidden.
-**Two tests assert exactly that asymmetry.**
+So the record file is named **relatively and without a dot**, and resolved against the output
+directory. The download archive is *not* affected — that argument is an ordinary path — which is why
+it keeps its dot and stays hidden. **Two tests assert exactly that asymmetry.**
 
 ## Progress is not piped, except where it must be
 
@@ -116,9 +110,9 @@ yt-dlp keeps the terminal and draws its own; only the machine-readable half goes
 That removes outright the failure a piped child would bring — **a child filling a pipe nobody is
 draining** — which is the failure the ffmpeg call in `profile.rs` has to spawn a thread to avoid.
 
-**A web page has no terminal to hand over**, so `run::spawn_watched` pipes after all, and answers
-that paragraph rather than benefiting from it: stderr is drained by a thread of its own and stdout
-read on the caller's. It also asks yt-dlp for a second, parseable progress stream:
+**A web page has no terminal to hand over**, so `run::spawn_watched` pipes after all and has to
+avoid that failure the same way: stderr is drained by a thread of its own and stdout read on the
+caller's. It also asks yt-dlp for a second, parseable progress stream:
 
 ```
 --newline  --progress-delta 0.5
@@ -137,7 +131,7 @@ KMP status=finished    pct=100.0% speed=16.57MiB/s   eta=NA      title=in-profil
 **Four things the parser must survive, every one of them in those three lines:**
 
 - **The values are space-padded to a fixed width.** `pct=  2.4%` split on its first space is an empty
-  string, which parses as nothing and leaves a bar that never moves. This is the one that bit.
+  string, which parses as nothing and leaves a bar that never moves.
 - **`Unknown` and `NA` are ordinary values**, not faults: speed is unknown for the first second of
   every download, and eta is `NA` on the line that says a file is done. Both become `None`.
 - **`status=finished` ends one file, not the run.** A playlist emits it once per video.
@@ -164,11 +158,11 @@ The title and artist are read back from the container and **mapped to `None` whe
 rather than absent is the common case, because a muxer asked to embed metadata it does not have writes
 the key with an empty value, and an empty string propagated onward is a song titled nothing at all.
 
-`ffprobe` adds a wrinkle `ffmpeg-next` did not have: it reports **the container's own tag case**,
+`ffprobe` adds a wrinkle `ffmpeg-next` does not have: it reports **the container's own tag case**,
 where the library normalizes MP4's `©nam` and Matroska's `TITLE` alike into lowercase `title`. Tags
 are therefore looked up case-insensitively here.
 
-**One consequence worth knowing on the packaging side**: an incremental scan settles a file by its
+**One consequence on the packaging side**: an incremental scan settles a file by its
 size and modification time, so a corpus scanned before the tags existed keeps its blank artists until
 those rows are scanned again. There is nothing to fix — **but it reads as a bug when a folder is
 rescanned and nothing changes.**

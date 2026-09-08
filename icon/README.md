@@ -24,18 +24,16 @@ Because it is the same drawing: **angular bands of colour filling the tile, a ne
 them, and `KM` on the plate** — the K in near-white, the M in the hue that names the program. These
 tools serve the karaoke app and are run beside it, so the mark belongs to that family.
 
-**The lead is a vermilion, and it is the only thing that had to be its own.** That repository's four
-sit at 45° (the machine's amber), 148° (the remote's green), 196° (the package builder's blue) and
-324° (km-admin's magenta); this is 11°, which is 34° from its nearest neighbour. Two taskbar buttons
-wearing similar icons are not tellable apart, which is the whole argument that produced four
-palettes there and a fifth here — and the first attempt at this one, a cyan, failed it: 180° is 16°
-from the blue.
+**The lead is a vermilion, the only colour here that is its own.** The karaoke app's four sit at
+45° (the machine's amber), 148° (the remote's green), 196° (the package builder's blue) and 324°
+(km-admin's magenta); this is 11°, which is 34° from its nearest neighbour. Two taskbar buttons
+wearing similar icons are not tellable apart, which is the argument for four palettes there and a
+fifth here. A cyan is refused for the same reason: 180° is 16° from the blue.
 
-The other four colours are that project's own theme values, written down as literals rather than
+The other four colours are the karaoke app's own theme values, written down as literals rather than
 imported: its renderer reads them out of `km_display::theme::Theme` and its types out of SDL, and
-neither is reachable from a repository whose point is to depend on none of it. **That copy can
-drift, and nothing breaks if it does** — these are different programs' icons and are supposed to
-differ.
+neither is reachable from a repository whose point is to depend on none of it. **That copy may
+drift** — these are different programs' icons and are supposed to differ.
 
 ## Committed, though generated
 

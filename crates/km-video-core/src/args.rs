@@ -9,9 +9,8 @@
 //! One thing, mostly: land a file that [`crate::profile::DEFAULT`] already accepts, so packaging
 //! copies its bytes instead of spending an hour re-encoding a picture it can only make worse. That
 //! profile is H.264 in 8-bit 4:2:0, at most 1080p30, with AAC, in MP4 — and a YouTube download asked
-//! for AVC and AAC is exactly that, which is the whole reason the probe-first design in
-//! [`crate::profile`] works at all. Asking for it up front is free; discovering afterwards that
-//! VP9 arrived is not.
+//! for AVC and AAC is exactly that, so the probe-first design in [`crate::profile`] has something to
+//! probe. Asking for it up front is free; discovering afterwards that VP9 arrived is not.
 //!
 //! # Three things deliberately *not* passed
 //!
@@ -79,12 +78,12 @@ pub const ARCHIVE_NAME: &str = ".km-fetched.txt";
 
 /// What the record file is called, **relative to the destination**.
 ///
-/// Three properties, each of which was arrived at the hard way, because `--print-to-file`'s file
-/// argument is put through yt-dlp's output-template machinery rather than taken as a path:
+/// Three properties, all of them forced by `--print-to-file`'s file argument going through yt-dlp's
+/// output-template machinery rather than being taken as a path:
 ///
 /// * **Relative, so `-P` resolves it.** Given a long *absolute* path, `--trim-filenames` shortens it
-///   by dropping directory components — the record file was written one folder above the videos, and
-///   the run then reported that it had fetched nothing at all, because that is where it looked.
+///   by dropping directory components, which writes the record file one folder above the videos and
+///   leaves the run reporting it fetched nothing at all, because that is where it looks.
 /// * **No leading dot.** Sanitisation strips one, so `.records.jsonl` is written as `records.jsonl`
 ///   and a tool looking for the name it asked for finds nothing. It would rather be a hidden file;
 ///   it cannot be, so it is deleted as soon as it has been read instead.
@@ -677,11 +676,11 @@ mod tests {
         );
     }
 
-    /// Regression. `--print-to-file`'s file argument goes through yt-dlp's output-template
-    /// machinery, so an absolute path there is *trimmed* by `--trim-filenames` — which shortens it
-    /// by dropping directory components. The record file was written a folder above the videos and
-    /// every run then reported fetching nothing, because that is where it looked. A bare name is
-    /// resolved against `-P` and is too short to trim.
+    /// `--print-to-file`'s file argument goes through yt-dlp's output-template machinery, so an
+    /// absolute path there is *trimmed* by `--trim-filenames` — which shortens it by dropping
+    /// directory components. That writes the record file a folder above the videos and leaves every
+    /// run reporting it fetched nothing, because that is where it looks. A bare name is resolved
+    /// against `-P` and is too short to trim.
     #[test]
     fn the_record_file_is_named_relatively_so_trimming_cannot_move_it() {
         let args = strings(&plan());
