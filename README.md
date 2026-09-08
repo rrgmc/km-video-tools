@@ -14,8 +14,8 @@ its events become lines or a progress bar.
 
 ## What it is for
 
-A karaoke app that plays video songs wants one shape and not seventeen: **H.264 in 8-bit 4:2:0,
-at most 1080p30, AAC audio, in MP4**. A download that took whatever a site offered arrives as VP9 at
+A karaoke app that plays video songs wants one shape: **H.264 in 8-bit 4:2:0, at most 1080p30, AAC
+audio, in MP4**. A download that took whatever a site offered arrives as VP9 at
 60 fps and costs an hour of re-encoding per song; a download that *asked* for AVC and AAC arrives in
 profile and gets copied.
 
@@ -69,9 +69,9 @@ It may carry `--playlist`, `--subs`, `--normalize`, `--no-archive`, `--limit N`,
 `--cookies-from-browser BROWSER`, `--format SELECTOR` and `--sort ORDER` — the settings a whole run
 shares, spelled as the flags they override. What you pass on the command line wins over what the
 file says; in the window they arrive as ticked boxes you can untick. A folder that always needs a
-cookie jar can now say so once instead of being retyped every morning.
+cookie jar says so once instead of being retyped.
 
-**`.kmvf` rather than `.txt`, and the extension is the point.** A list is a document with a grammar,
+**`.kmvf` rather than `.txt`.** A list is a document with a grammar,
 and `.txt` is the one thing that cannot say so to an operating system. With an extension of its own
 it carries the program's icon and opens by double-clicking:
 
@@ -82,8 +82,8 @@ km-video-downloader anime.kmvf     # the window, that list filled in, nothing fe
 The output folder moves to the list's own folder and the list is offered ticked; pressing Fetch is
 still yours. Opening a second one while the window is up hands it to that window rather than starting
 a second copy — and so does opening the program itself again, which brings the window you already
-have forward instead of failing over a port it cannot have. **Two different rules, worth keeping
-apart:** a folder's own list is the one file named exactly `km-video-fetch.kmvf` sitting in it, while
+have forward instead of failing over a port it cannot have. **Two different rules, easy to
+conflate:** a folder's own list is the one file named exactly `km-video-fetch.kmvf` sitting in it, while
 the association is on the extension and opens any such file anywhere.
 
 ## The window
@@ -153,7 +153,7 @@ licence texts and a README naming the version — plus the console twin on Windo
 bundle on macOS. `dist/` is output and is never committed.
 
 A staged folder is never overwritten by a build of a *different* version — the version is part of its
-name — so yesterday's release sits beside today's until something takes it away. `task clean:old`
+name — so a build of an earlier version sits beside the current one until something takes it away. `task clean:old`
 does, keeping the current version and removing the rest; `--dry-run` shows what it would take first.
 `task clean` takes every staged release, and `task clean:all` adds what cargo built.
 
@@ -214,8 +214,7 @@ docs/                   why things are the way they are
 
 The rule the split exists to keep: **a binary crate here is a command line and its output.** Every
 `println!` in `km-video-fetch` is in its `main.rs`, nothing in `km-video-core` prints at all, and
-`km-video-downloader` renders the same events into HTML. That is what makes the two programs one
-program with two faces rather than two programs that agree by accident.
+`km-video-downloader` renders the same events into HTML.
 
 ## Licence
 
