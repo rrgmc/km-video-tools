@@ -293,9 +293,9 @@ fn arrival(record: &km_video_core::run::Record, verdict: &fetch::Verdict) -> Arr
 
     // **Settled by the verdict, before anything looks for a file**, because a dry run never writes
     // one: `args::SIMULATE_TEMPLATE` leaves `filepath` out on purpose, there being nothing to put in
-    // it. Asking for the path first is what made every row of a dry run a red *no file was written*
-    // here, while the command line said *would fetch this (3:33)* about the same record — and it
-    // left the `NotFetched` arm below unreachable from this page.
+    // it. Asking for the path first turns every row of a dry run into a red *no file was written*
+    // here while the command line says *would fetch this (3:33)* about the same record, and leaves
+    // the `NotFetched` arm below unreachable from this page.
     if let V::NotFetched = verdict {
         return Arrival {
             name: record.describe(),

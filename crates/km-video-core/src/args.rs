@@ -676,11 +676,11 @@ mod tests {
         );
     }
 
-    /// Regression. `--print-to-file`'s file argument goes through yt-dlp's output-template
-    /// machinery, so an absolute path there is *trimmed* by `--trim-filenames` — which shortens it
-    /// by dropping directory components. The record file was written a folder above the videos and
-    /// every run then reported fetching nothing, because that is where it looked. A bare name is
-    /// resolved against `-P` and is too short to trim.
+    /// `--print-to-file`'s file argument goes through yt-dlp's output-template machinery, so an
+    /// absolute path there is *trimmed* by `--trim-filenames` — which shortens it by dropping
+    /// directory components. That writes the record file a folder above the videos and leaves every
+    /// run reporting it fetched nothing, because that is where it looks. A bare name is resolved
+    /// against `-P` and is too short to trim.
     #[test]
     fn the_record_file_is_named_relatively_so_trimming_cannot_move_it() {
         let args = strings(&plan());
