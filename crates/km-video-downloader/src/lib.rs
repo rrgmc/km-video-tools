@@ -83,19 +83,18 @@ pub fn say(line: &str) {
 #[derive(Debug, Parser)]
 #[command(name = "km-video-downloader", version, about, long_about = None)]
 pub struct Cli {
+    // **What a file association hands over**, and the only argument this program takes
+    // positionally, because a shell association passes a path and nothing else. See
+    // `km_video_core::args::EXTENSION`.
+    //
+    // Nothing is fetched on open: a document says *look at this*, not *do it*.
+    //
+    // **macOS never uses this.** It delivers a document as an Apple Event rather than as an
+    // argument, which `desktop.rs` answers with `Event::Opened`.
     /// A list of links to open.
     ///
-    /// **What a file association hands over**, and the only argument this program takes
-    /// positionally, because a shell association passes a path and nothing else. See
-    /// [`km_video_core::args::EXTENSION`].
-    ///
-    /// Pre-filled and nothing more: the folder moves to this list's own folder and the list is
-    /// offered on the page, ticked. Nothing is fetched until somebody presses Fetch — opening a
-    /// document says *look at this*, not *do it*.
-    ///
-    /// **macOS never uses this**, and that is the platform's rule rather than a gap here: it
-    /// delivers a document as an Apple Event rather than as an argument, which `desktop.rs` answers
-    /// with `Event::Opened`.
+    /// The output folder moves to the list's own folder, and the list is offered on the page,
+    /// already ticked. Nothing is fetched until you press Fetch.
     #[arg(value_name = "PATH")]
     pub list: Option<PathBuf>,
 
@@ -110,10 +109,12 @@ pub struct Cli {
     #[arg(long)]
     pub lan: bool,
 
+    // Implied by `wants_window` returning false: a build without the `desktop` feature, or a run
+    // with `--browser` or `--lan`.
     /// Open a browser at the page once it is listening.
     ///
-    /// Implied where there is no window to open — a build without the `desktop` feature, or a run
-    /// with `--browser` or `--lan`.
+    /// Implied where this run has no window of its own: a browser-only build, or a run with
+    /// `--browser` or `--lan`.
     #[arg(long)]
     pub open: bool,
 
@@ -125,11 +126,11 @@ pub struct Cli {
     #[arg(long, value_name = "PATH")]
     pub data_dir: Option<PathBuf>,
 
+    // The same rule `--data-dir` follows, and for the same reason: an argument is what somebody
+    // asked for today, and a settings file is what they meant from now on.
     /// The yt-dlp to run, when it is not on the PATH.
     ///
-    /// For this run only, and never written down — the same rule `--data-dir` follows, and for the
-    /// same reason: an argument is what somebody asked for today, and a settings file is what they
-    /// meant from now on.
+    /// For this run only. It is not remembered.
     #[arg(long, value_name = "PATH")]
     pub yt_dlp: Option<PathBuf>,
 
