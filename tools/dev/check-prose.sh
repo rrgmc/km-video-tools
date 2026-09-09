@@ -45,6 +45,11 @@ self='check-prose'
 # phrasing for a rule about the tool -- whether a URL means one video or a playlist is stated rather
 # than guessed -- and a pattern flagging that would be the checker deciding the prose. What is
 # matched below is only the forms whose subject is the writing.
+#
+# **`worth knowing` is out for the same reason.** `Taskfile.yml` uses it of a flag -- the one flag
+# worth knowing -- where the subject is the flag and the sentence is plain usefulness. What the
+# decision names is `worth saying out loud`, whose subject is the writing, and `recording`, `saying`
+# and `reading` reach that without reaching the other.
 SHAPES=(
   "what something used to be|\\b(used to (be|say|sit|carry|live|exist|read|have|do|call|spell|hold|mean))\\b"
   "what something used to be|\\bno longer\\b"
@@ -54,7 +59,7 @@ SHAPES=(
   "chronology|\\b(since|until|before|after|in) [0-9]+\\.[0-9]+(\\.[0-9a-z]+)?\\b"
   "chronology|\\bfor (two|three|four|five|several) milestones\\b"
   "chronology|\\bmilestone [0-9]"
-  "meta-commentary on the writing|\\bworth (recording|saying|reading|knowing)\\b"
+  "meta-commentary on the writing|\\bworth (recording|saying|reading)\\b"
   "meta-commentary on the writing|\\b(recorded|noted) rather than\\b"
   "meta-commentary on the writing|\\bstated rather than (glossed|narrated)\\b"
   "meta-commentary on the writing|\\bthat is the record of\\b"
@@ -62,15 +67,19 @@ SHAPES=(
   "meta-commentary on the writing|\\brather than an (accident|oversight|omission)\\b"
 )
 
-# This script's own header names the shapes it hunts, so it excludes itself. Nothing else is exempt:
-# every tracked document here binds something, and a file put out of reach of this is a file where
-# the rule stops holding.
-EXEMPT='^tools/dev/check-prose\.sh$'
+# Two paths, for two different reasons. This script's own header names every shape it hunts. And
+# `htmx.min.js` is vendored and is one 50 KB line, so a single match in it prints the whole file to
+# the terminal -- a size exemption rather than licence to write badly in it.
+#
+# Nothing else is exempt, `docs/decisions.md` included: that file is where somebody writes up a
+# decision they have just made, which is where this rule is most easily broken.
+EXEMPT='^(tools/dev/check-prose\.sh|crates/km-video-downloader/static/htmx\.min\.js)$'
 
-# Text this repository writes: documents, and the languages whose comments carry reasoning. The
-# staged README and the macOS `Distribution` xml are left out because neither argues anything, and
-# `icon/` and `dist/` hold no prose at all.
-KINDS=('*.md' '*.rs' '*.html' '*.css' '*.js' '*.toml' '*.sh' '*.yml' '*.iss')
+# Text this repository writes: documents, and the languages whose comments carry reasoning. `.xml`
+# and `.iss` are in because the macOS `Distribution` and the Inno Setup script each argue a version
+# floor in a comment. `.txt` and `.svg` are out because the only tracked ones are a vendored licence
+# and generated path data, and `icon/` and `dist/` hold no prose at all.
+KINDS=('*.md' '*.rs' '*.html' '*.css' '*.js' '*.toml' '*.sh' '*.yml' '*.xml' '*.iss')
 
 # -- What to read ---------------------------------------------------------------------------------
 
@@ -149,7 +158,12 @@ for file in "${FILES[@]}"; do
       # this enforces has to quote the shapes it forbids, and so does anything pointing at it, so a
       # hit surviving only inside "..." or a backtick span is a mention. Strip both and re-test:
       # what is left is the line's own voice. Without this, the first thing this fails is the rule.
-      if ! printf '%s' "${hit#*:}" | sed -e 's/"[^"]*"//g' -e 's/`[^`]*`//g' | grep -qiE "$pattern"; then
+      #
+      # Two steps rather than one pipeline into `grep -q`: under `pipefail` a `grep -q` that exits
+      # the moment it matches can leave `sed` dead of SIGPIPE, and the pipeline's non-zero status
+      # would then read as a mention for a line that is a hit.
+      spoken=$(printf '%s' "${hit#*:}" | sed -e 's/"[^"]*"//g' -e 's/`[^`]*`//g')
+      if ! grep -qiE "$pattern" <<<"$spoken"; then
         continue
       fi
       printf '%s:%s\n    ^ %s\n' "$file" "$hit" "$rule"
