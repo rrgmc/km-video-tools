@@ -65,6 +65,20 @@ tasks:
     cmds:
       - '"{{.SH}}" tools/dev/check-toolchain-pin.sh'
 
+  # `How a document in this repository is written` says prose states the rule and the reason somebody
+  # needs in order not to undo it, and never narrates how it was arrived at. It applies that to code
+  # comments and commit messages too. This catches the shapes that have one -- `what something used
+  # to be`, `chronology`, `meta-commentary` -- and cannot see the appositive tail or the paragraph of
+  # reassurance, so it is a floor rather than a pass.
+  #
+  # **Not in `check`, and `--changed` is why it can be run at all.** It reads the lines a branch adds
+  # by line rather than by file, so touching a file does not inherit that file's backlog. The bare
+  # `tools/dev/check-prose.sh` is the whole tree, and it is the worklist for clearing the rest.
+  lint:prose:
+    desc: 'Check that the prose this branch adds states its rule rather than narrating it'
+    cmds:
+      - '"{{.SH}}" tools/dev/check-prose.sh --changed'
+
   fmt:
     desc: Format everything
     cmds:
