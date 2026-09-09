@@ -47,9 +47,15 @@ cd "$(dirname "$0")/../.."
 # stack, fails in the dynamic loader before `main` -- with the key, the platform says so instead.
 # `tools/platform/macos/installer.sh` asserts this number and the Distribution's are the same one.
 #
-# **Unsigned.** macOS will refuse a downloaded copy until it is opened once from the context menu,
-# or `xattr -d com.apple.quarantine` is run over it. A copy built on the machine it runs on has no
-# quarantine attribute and is not affected.
+# **Ad-hoc signed by default, and an ad-hoc seal is not one Gatekeeper accepts.** `dist_codesign`
+# signs every bundle either way -- with `KM_SIGN_IDENTITY` where it is set, with `-` where it is not
+# -- so a bundle always carries a signature and the question is whose. macOS refuses a downloaded
+# copy until it is opened once from the context menu, or `xattr -d com.apple.quarantine` is run over
+# it. A copy built on the machine it runs on carries no quarantine attribute and is not affected.
+#
+# **Nothing staged here is notarized**, a Developer ID build included. Stapling happens to the
+# `.pkg`, in `tools/platform/macos/installer.sh --notarize`, so that is the carrier for somebody who
+# will download it; this folder is for somebody who will build or copy it.
 bundle() { # <app> <version> <folder>
   local app="$1" version="$2" folder="$3"
   local name; name="$(display_name "$app")"
