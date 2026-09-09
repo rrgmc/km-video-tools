@@ -127,9 +127,9 @@ VERSION="$(pkg_version -p km-video-fetch)"
 #   - the contents of a folder that is being kept -- `km-video-downloader-console.exe`,
 #     `LICENSE-MIT`, `README.txt` -- none of which parse as a version.
 #
-# **One thing this therefore cannot see**: a whole product folder for a program that no longer exists.
-# Nothing stages into one any more, so no staging run can clean it, and the version inside it is
-# current, so `--old` reads it as this build. Knowing it is dead means knowing which products exist,
+# **One thing this therefore cannot see**: a whole product folder for a program this repository has
+# stopped building. Nothing stages into it, so no staging run can clean it, and the version inside it
+# is current, so `--old` reads it as this build. Knowing it is dead means knowing which products exist,
 # which is a list this script deliberately does not keep -- see the note above about not sourcing
 # tools/dist/common.sh. So it is `--all`, or `rm -rf` by hand, and saying so here is the whole of the
 # fix.

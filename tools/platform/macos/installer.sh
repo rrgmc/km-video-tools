@@ -220,10 +220,9 @@ done
 sed -e "s/@VERSION@/$VERSION/g" -e "s/@ARCHS@/$ARCHS/g" "$RES/distribution.xml" > "$STAGE/distribution.xml"
 xmllint --noout "$STAGE/distribution.xml"
 
-# The minimum used to be stated here and nowhere else, with nothing to reconcile it against. It now
-# has a second home -- `LSMinimumSystemVersion` in the bundle, which is the only copy a `.app` handed
-# over as a folder carries -- so this reads the number out rather than merely proving the element is
-# still there, and the round trip below fails if the two have drifted apart.
+# The minimum has two homes -- here, and `LSMinimumSystemVersion` in the bundle, which is the only
+# copy a `.app` handed over as a folder carries. So this reads the number out rather than merely
+# proving the element is still there, and the round trip below fails if the two have drifted apart.
 #
 # A Distribution that lost the element entirely would install onto a system too old to open the
 # window, silently. That is still what the emptiness check is for.

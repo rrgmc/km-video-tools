@@ -382,7 +382,7 @@ done
 [ -d "$SCRATCH/app" ] && { echo "installer: the uninstaller left $SCRATCH/app behind." >&2; exit 1; }
 
 # The other half, and the one an uninstaller is likeliest to get wrong: a list on this machine must
-# no longer open a program that is no longer here.
+# not still open the program that has just been removed.
 [ -z "$(kmvf_class)" ] \
   || { echo "installer: the uninstaller left $EXTENSION pointing at '$(kmvf_class)'." >&2; exit 1; }
 [ -z "$(kmvf_command)" ] \
