@@ -8,10 +8,10 @@ license.workspace = true
 repository.workspace = true
 publish.workspace = true
 
-# **No features, and that is a change from where this came from.** In the karaoke app the whole
-# check-and-normalize half sat behind a default-off `video` feature, because reaching the packaging
-# profile meant linking ffmpeg through `km-video`, which in turn needed libclang to build. Reading a
-# file with `ffprobe` needs neither, so the tool's third reason to exist is no longer optional.
+# **No features: the check-and-normalize half is unconditional.** Reaching the packaging profile by
+# linking ffmpeg needs libclang to build, which is what puts that half behind a default-off feature
+# in the karaoke app. Reading a file with `ffprobe` needs neither, so the tool's third reason to
+# exist is always compiled in.
 [dependencies]
 km-video-core = { workspace = true }
 anyhow = { workspace = true }

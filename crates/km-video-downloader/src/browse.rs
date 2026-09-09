@@ -2,8 +2,8 @@
 //!
 //! # Why the picking happens on this side
 //!
-//! **A file input gives a page the file's *contents*, never its location**, and that is a security
-//! property of the browser rather than an oversight. There is no folder input at all. So a page that
+//! **A file input gives a page the file's *contents*, never its location** — a security property of
+//! the browser. There is no folder input at all. So a page that
 //! needs a folder either asks somebody to type a path or does the listing itself, and typing a path
 //! is what people are already doing by hand.
 //!

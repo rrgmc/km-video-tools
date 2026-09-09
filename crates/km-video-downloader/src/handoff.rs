@@ -54,7 +54,7 @@ const TIMEOUT: Duration = Duration::from_secs(5);
 /// Enough of an answer to recognise, and a cap on anything else.
 ///
 /// Whatever has the port may be a program that answers a POST with a megabyte of HTML. The reply
-/// this looks for is one short line, so nothing beyond this is worth reading.
+/// this looks for is one short line, so nothing beyond this is read.
 const REPLY_LIMIT: usize = 8 * 1024;
 
 /// Tells the copy already listening that this one was opened, and says whether it answered.

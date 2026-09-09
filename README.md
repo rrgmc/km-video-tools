@@ -140,6 +140,7 @@ knowing:
 
 ```sh
 task check      # fmt, clippy, tests — in the order a failure is cheapest to read
+task lint:prose # the prose this branch adds states its rule rather than narrating it
 task dist       # stage a folder somebody can be handed, into dist/
 task dist:bin   # ...or one folder with every program in it
 task dist:setup # ...or a setup program, for the people who would rather not unpack one

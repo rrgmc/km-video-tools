@@ -613,14 +613,15 @@ narrate how the rule was arrived at.**
 
 What that excludes, in order of how often it creeps back:
 
-- **What something used to be.** No former names, former defaults, former behaviors, no "this
-  reverses", "this used to say", "since renamed", "no longer". A reader arrives at the repository as
-  it is; a sentence about a state that is gone costs them a paragraph and tells them nothing they
-  can act on. This covers a decision that was reversed as much as a spelling that changed.
+- **What something `used to be`.** No "former names", "former defaults", "former behaviors", no
+  "this reverses", "this used to say", "since renamed", "no longer". A reader arrives at the
+  repository as it is; a sentence about a state that is gone costs them a paragraph and tells them
+  nothing they can act on. This covers a decision that was reversed as much as a spelling that
+  changed.
 - **Chronology.** No milestone numbers, no dates in headings, no ordering of when things were found.
   A date belongs in the body only where a reader needs to know when a measurement was taken.
-- **Meta-commentary on the writing.** Any sentence whose subject is the document: "recorded rather
-  than glossed", "and that is the record of it", "worth saying out loud".
+- **Meta-commentary on the writing.** Any sentence whose subject is the document:
+  "recorded rather than glossed", "and that is the record of it", "worth saying out loud".
 - **Reassurance and common sense.** A paragraph explaining that a first run works, or that a
   diagnostic is optional, is a paragraph nobody needed.
 - **Appositive tails.** "…, which is what makes X safe", "…, and that is deliberate rather than an
@@ -631,11 +632,27 @@ What survives is the imperative and the trap. **A heading that instructs is not 
 describes is trimmed to a plain noun phrase.
 
 **The keep-test for a paragraph**: would a reader who deleted it either re-derive a wrong answer, or
-break something silently? Anything in the past tense about a decision that no longer holds fails it.
+break something silently? Anything in the past tense about a decision that was reversed fails it.
 When unsure, keep the sentence and delete the paragraph around it.
 
 **This applies to code comments too**, on the same test. A comment saying why a line is the way it
-is earns its place; one saying what the line used to be does not.
+is earns its place; one describing a state that is gone does not. It applies to a commit message as
+well, which is where a change is most naturally narrated.
+
+**`tools/dev/check-prose.sh` keeps the mechanical half true**, and `task lint:prose` runs it over
+the lines a branch adds. It matches the three shapes above that have one -- `what something used to
+be`, `chronology`, `meta-commentary` -- and cannot see the appositive tail or the paragraph of
+reassurance, so a clean run is a floor rather than a pass. It is deliberately **not** in
+`task check`: `--changed` reads what a branch adds by line rather than by file, so touching a file
+does not inherit that file's backlog, and the whole-tree form is the worklist for the rest.
+
+**A phrase inside quotation marks or a code span is read as a mention rather than a use**, which is
+what lets this entry name the shapes it forbids. So the bullet leads above carry them quoted or in
+backticks, and a new one does the same — otherwise the check reports this entry as a violation of
+itself. Two patterns are deliberately absent for the same reason the filter exists: a bare
+`stated rather than`, because `stated rather than guessed` is how `docs/design.md` and
+`km-video-core` say a URL is read, and `worth knowing`, because `Taskfile.yml` uses it of a flag. A
+pattern that asked for those to be reworded would be the checker deciding the prose.
 
 **A heading is quoted from outside `docs/`.** `.github/workflows/ci.yml` and `rust-toolchain.toml`
 each cite one by its full text, and nothing validates the citation. Grep for a heading before

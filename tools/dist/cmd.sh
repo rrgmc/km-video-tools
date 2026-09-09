@@ -47,9 +47,9 @@ cd "$(dirname "$0")/../.."
 # stack, fails in the dynamic loader before `main` -- with the key, the platform says so instead.
 # `tools/platform/macos/installer.sh` asserts this number and the Distribution's are the same one.
 #
-# Unsigned, and that is worth saying out loud: macOS will refuse a downloaded copy until it is
-# opened once from the context menu, or `xattr -d com.apple.quarantine` is run over it. A copy built
-# on the machine it runs on has no quarantine attribute and is not affected.
+# **Unsigned.** macOS will refuse a downloaded copy until it is opened once from the context menu,
+# or `xattr -d com.apple.quarantine` is run over it. A copy built on the machine it runs on has no
+# quarantine attribute and is not affected.
 bundle() { # <app> <version> <folder>
   local app="$1" version="$2" folder="$3"
   local name; name="$(display_name "$app")"
