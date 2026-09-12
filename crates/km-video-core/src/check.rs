@@ -10,6 +10,11 @@
 //!
 //! Nothing here restates what the profile is — [`crate::profile`] is where that lives, and it in
 //! turn is a copy of the karaoke app's, which is the authoritative one.
+//!
+//! **Measuring and aiming are two questions with two answers.** [`inspect`] asks what packaging will
+//! make of a file, which is the profile's to say and is the same whatever anybody asked for.
+//! [`normalize`] is told what to aim at, because that is a size somebody chose. See
+//! [`crate::size`].
 
 use std::path::{Path, PathBuf};
 
@@ -51,13 +56,14 @@ pub fn inspect(path: &Path) -> anyhow::Result<Report> {
     })
 }
 
-/// Re-encodes a file into the profile, replacing it.
+/// Re-encodes a file to `encode`, replacing it.
 ///
 /// Through a temporary name and a rename, as packaging itself does, so an interrupted encode cannot
 /// leave a half-written video where a whole one was. The source is removed only once the
 /// replacement is in place.
 pub fn normalize(
     report: &Report,
+    encode: &crate::size::Encode,
     encoders: &crate::profile::Encoders,
     on_progress: impl FnMut(crate::profile::Progress),
 ) -> anyhow::Result<PathBuf> {
@@ -67,15 +73,23 @@ pub fn normalize(
     let partial = report.path.with_extension(format!("{container}.part"));
     let destination = report.path.with_extension(container);
 
-    crate::profile::transcode(
+    let encoded = crate::profile::transcode(
         &report.path,
         &partial,
-        &crate::profile::DEFAULT,
+        encode,
         &report.info,
         encoders,
         on_progress,
     )
-    .with_context(|| format!("re-encoding {}", report.path.display()))?;
+    .with_context(|| format!("re-encoding {}", report.path.display()));
+
+    // **A failed encode takes its own leavings with it.** What it leaves behind is a `.part` beside
+    // somebody's songs, and a half-written video that shares a stem with a whole one is the kind of
+    // thing found months later by a packager refusing it.
+    if let Err(why) = encoded {
+        let _ = std::fs::remove_file(&partial);
+        return Err(why);
+    }
 
     // The source goes first when the destination would overwrite it, because a rename onto a file
     // that is also the encode's input is the one ordering that can lose both.

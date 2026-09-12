@@ -30,11 +30,29 @@
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 
+use crate::size::Video;
+
 /// The formats to consider: anything, provided the picture is no taller than 1080.
 ///
 /// A ceiling rather than a preference, because 4K of a karaoke caption is disk spent on nothing the
 /// appliance can show. Everything else is left to [`SORT`], which degrades instead of failing.
+///
+/// What [`Video::Full`] asks for, and what [`format_for`] builds at any other height.
 pub const FORMAT: &str = "bv*[height<=1080]+ba/b[height<=1080]/bv*+ba/b";
+
+/// The same selector at any ceiling.
+///
+/// **The height binds the picture and nothing else.** `bv*` and `ba` are chosen separately and muxed,
+/// so asking for a shorter picture leaves the audio stream exactly as it would have been: the sound
+/// of a 720p download is the sound of a 1080p one. That is what makes a smaller size cost nothing a
+/// person singing would hear.
+///
+/// **The last alternative carries no ceiling**, so a site that offers one size and no smaller one
+/// still yields a song. What arrived is then [`crate::check`]'s to report.
+#[must_use]
+pub fn format_for(max_height: u32) -> String {
+    format!("bv*[height<={max_height}]+ba/b[height<={max_height}]/bv*+ba/b")
+}
 
 /// How to rank what [`FORMAT`] allowed.
 ///
@@ -43,6 +61,16 @@ pub const FORMAT: &str = "bv*[height<=1080]+ba/b[height<=1080]/bv*+ba/b";
 /// lets the shape check afterwards say what was settled for. A song that arrived as VP9 is still a
 /// song; a song that did not arrive is not.
 pub const SORT: &str = "vcodec:h264,acodec:aac,res:1080,fps:30,ext:mp4:m4a";
+
+/// The same order at any ceiling.
+///
+/// `res:` names the size to aim *at* rather than a limit, so it moves with [`format_for`]'s ceiling:
+/// a run asking for 720p and ranking by `res:1080` would take the 1080p copy of every video the
+/// ceiling let through.
+#[must_use]
+pub fn sort_for(max_height: u32) -> String {
+    format!("vcodec:h264,acodec:aac,res:{max_height},fps:30,ext:mp4:m4a")
+}
 
 /// `Artist - Title.mp4`, or `Title.mp4` when nothing knows an artist.
 ///
@@ -243,9 +271,16 @@ pub struct Plan {
     pub cookies_from_browser: Option<String>,
     /// Mux subtitles into the file.
     pub subs: bool,
-    /// Replace [`FORMAT`].
+    /// How much picture to ask a site for.
+    ///
+    /// **`None` rather than [`Video::Full`] for a run that said nothing**, so that
+    /// [`crate::fetch::Request::apply_list_settings`] can tell a command line asking for the largest
+    /// step from a command line asking for nothing. Without that difference a list's `--video small`
+    /// would be overruled by a default nobody typed.
+    pub video: Option<Video>,
+    /// Replace the selector [`Video`] would have built.
     pub format: Option<String>,
-    /// Replace [`SORT`].
+    /// Replace the order [`Video`] would have built.
     pub sort: Option<String>,
     /// Ask what would happen and download nothing.
     pub dry_run: bool,
@@ -300,10 +335,23 @@ pub fn argv(plan: &Plan) -> Vec<OsString> {
         }
     );
 
+    // **An override replaces the whole selector, the step's ceiling included.** One is yt-dlp's own
+    // syntax and says exactly which streams to take; the other is a size somebody picked. A run
+    // given both downloads what the selector says and re-encodes to what the step says, each
+    // argument doing the one job it was given.
     flag!(args, "-f");
-    flag!(args, plan.format.as_deref().unwrap_or(FORMAT));
+    match &plan.format {
+        Some(format) => flag!(args, format.clone()),
+        None => flag!(
+            args,
+            format_for(plan.video.unwrap_or_default().max_height())
+        ),
+    }
     flag!(args, "-S");
-    flag!(args, plan.sort.as_deref().unwrap_or(SORT));
+    match &plan.sort {
+        Some(sort) => flag!(args, sort.clone()),
+        None => flag!(args, sort_for(plan.video.unwrap_or_default().max_height())),
+    }
 
     // Both needed, and they are not the same thing: the first says what container to mux the
     // separate video and audio streams into, the second says what to do when the result still is
@@ -434,6 +482,7 @@ mod tests {
             archive: Some(PathBuf::from("videos/.km-fetched.txt")),
             cookies_from_browser: None,
             subs: false,
+            video: None,
             format: None,
             sort: None,
             dry_run: false,
@@ -500,9 +549,49 @@ mod tests {
         assert_eq!(value_of(&args, "--remux-video").as_deref(), Some("mp4"));
     }
 
+    /// The two constants are the largest step written out, which is what keeps the built form
+    /// honest: a change to either shape has to be made in both places or this fails.
+    #[test]
+    fn the_built_selector_at_full_height_is_the_constant() {
+        assert_eq!(format_for(Video::Full.max_height()), FORMAT);
+        assert_eq!(sort_for(Video::Full.max_height()), SORT);
+    }
+
+    /// Both halves move together. Ranking by a size the ceiling no longer admits would take the
+    /// largest copy of everything that got through.
+    #[test]
+    fn a_smaller_step_asks_a_site_for_less() {
+        let mut plan = plan();
+        plan.video = Some(Video::Small);
+        let args = strings(&plan);
+        assert_eq!(
+            value_of(&args, "-f").as_deref(),
+            Some("bv*[height<=720]+ba/b[height<=720]/bv*+ba/b")
+        );
+        assert_eq!(
+            value_of(&args, "-S").as_deref(),
+            Some("vcodec:h264,acodec:aac,res:720,fps:30,ext:mp4:m4a")
+        );
+    }
+
+    /// The audio is asked for the same way at every step, which is what makes a smaller picture
+    /// free of any cost to the sound.
+    #[test]
+    fn every_step_asks_for_the_same_audio() {
+        for step in Video::ALL {
+            let mut plan = plan();
+            plan.video = Some(step);
+            let selector = value_of(&strings(&plan), "-f").expect("a selector");
+            assert!(selector.contains("+ba/"), "{step}: {selector}");
+            assert!(!selector.contains("abr"), "{step}: {selector}");
+            assert!(!selector.contains("asr"), "{step}: {selector}");
+        }
+    }
+
     #[test]
     fn overrides_replace_the_defaults_rather_than_joining_them() {
         let mut plan = plan();
+        plan.video = Some(Video::Tiny);
         plan.format = Some("bestvideo+bestaudio".to_owned());
         plan.sort = Some("res".to_owned());
         let args = strings(&plan);
@@ -513,6 +602,10 @@ mod tests {
         assert_eq!(value_of(&args, "-S").as_deref(), Some("res"));
         assert_eq!(args.iter().filter(|arg| *arg == "-f").count(), 1);
         assert_eq!(args.iter().filter(|arg| *arg == "-S").count(), 1);
+        assert!(
+            !args.iter().any(|arg| arg.contains("480")),
+            "a selector given by hand leaves no trace of the step: {args:?}"
+        );
     }
 
     /// Both of these change the *stream layout* of the file, which is the one thing the machine's
