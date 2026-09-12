@@ -23,7 +23,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
 
-use crate::{args, check, list, profile, run};
+use crate::{args, check, list, profile, run, size};
 
 /// Whether to keep going, said by the same closure that hears about everything else.
 ///
@@ -78,7 +78,7 @@ impl Request {
     ///
     /// # Precedence, and the one wart in it
     ///
-    /// **What was asked for wins where it can be told to have been asked for.** For the four
+    /// **What was asked for wins where it can be told to have been asked for.** For the five
     /// `Option`s that is exact: `None` means nobody said, so the list is heard. For the flags it
     /// cannot be — a `bool` off is indistinguishable from a `bool` unset, on a command line as much
     /// as in a form — so those are the *or* of the two, and a list that says `--subs` cannot be
@@ -102,6 +102,9 @@ impl Request {
         }
         if self.plan.sort.is_none() {
             self.plan.sort = settings.sort.clone();
+        }
+        if self.plan.video.is_none() {
+            self.plan.video = settings.video;
         }
     }
 }
@@ -186,6 +189,23 @@ pub enum Verdict {
     /// It was outside the profile and has been re-encoded into it.
     Normalized {
         /// What was wrong before the re-encode.
+        summary: String,
+    },
+    /// Packaging will copy its bytes, and its picture is larger than this run asked for.
+    ///
+    /// **Not [`Verdict::Outside`]**, whose sentence is that packaging will re-encode the file. The
+    /// profile's sizes are ceilings, so a picture smaller than 1080p is as much in profile as one at
+    /// it: this says something about disk, and nothing about whether the file plays.
+    Larger {
+        /// How far over the asked-for size it is.
+        summary: String,
+    },
+    /// It was larger than this run asked for and has been re-encoded down to it.
+    ///
+    /// **Not [`Verdict::Normalized`]**, which says a file has been brought into profile. This one
+    /// was in profile before the re-encode and is in profile after it.
+    Shrunk {
+        /// How far over the asked-for size it was.
         summary: String,
     },
     /// The file is on disk and could not be read.
@@ -386,6 +406,10 @@ pub fn fetch(request: &Request, mut on_event: impl FnMut(Event) -> Flow) -> Resu
         None
     };
 
+    // The step resolved once for the whole run, since it is a property of the request rather than
+    // of any one file.
+    let encode = plan.video.unwrap_or_default().encode();
+
     let mut all_playable = true;
     let mut checked = 0;
     for record in fetched.iter().cloned() {
@@ -400,7 +424,7 @@ pub fn fetch(request: &Request, mut on_event: impl FnMut(Event) -> Flow) -> Resu
             Verdict::NotFetched
         } else {
             match record.path() {
-                Some(path) => inspect(&path, encoders.as_ref(), &mut on_event),
+                Some(path) => inspect(&path, &encode, encoders.as_ref(), &mut on_event),
                 None => Verdict::Unreadable {
                     why: "no file was written".to_owned(),
                 },
@@ -570,9 +594,55 @@ impl Drop for Scratch {
     }
 }
 
+/// What re-encoding one file would be for, or `None` where there is nothing to do to it.
+///
+/// **A pure function of the two questions**, so the decision the whole size choice turns on can be
+/// asserted without an encoder or a file. The order is the one that matters: being outside the
+/// profile is about whether the file plays and is packaged, and being larger than was asked for is
+/// about disk, so the first is reported even when both are true.
+///
+/// `bigger` is [`crate::size::Encode::exceeded_by`]'s answer.
+fn wanted_work(report: &check::Report, bigger: Option<String>) -> Option<(Verdict, String)> {
+    if !report.in_profile() {
+        let summary = report
+            .mismatches
+            .iter()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>()
+            .join("; ");
+        let waiting = if report.blocking() {
+            Verdict::Unplayable {
+                summary: summary.clone(),
+            }
+        } else {
+            Verdict::Outside {
+                summary: summary.clone(),
+            }
+        };
+        return Some((waiting, summary));
+    }
+
+    // In profile, so packaging copies it whatever happens next. Only its size is in question, and a
+    // run that did not ask to spend CPU is told rather than charged.
+    bigger.map(|summary| {
+        (
+            Verdict::Larger {
+                summary: summary.clone(),
+            },
+            summary,
+        )
+    })
+}
+
 /// Measures one arrived file, re-encoding it when `encoders` says to.
+///
+/// Two questions, and `encode` is what the second is asked against: what packaging will make of the
+/// file, which never depends on what anybody asked for, and whether its picture is larger than this
+/// run wanted. Either is reason enough to re-encode, and neither is reason enough on its own to do
+/// it without being asked.
 fn inspect(
     path: &Path,
+    encode: &size::Encode,
     encoders: Option<&profile::Encoders>,
     on_event: &mut impl FnMut(Event) -> Flow,
 ) -> Verdict {
@@ -586,33 +656,29 @@ fn inspect(
         }
     };
 
-    if report.in_profile() {
+    let Some((waiting, summary)) = wanted_work(&report, encode.exceeded_by(&report.info)) else {
         return Verdict::InProfile;
-    }
+    };
 
-    let summary = report
-        .mismatches
-        .iter()
-        .map(ToString::to_string)
-        .collect::<Vec<_>>()
-        .join("; ");
-
+    // Nothing was asked to be spent, so what was found is simply said.
     let Some(encoders) = encoders else {
-        return if report.blocking() {
-            Verdict::Unplayable { summary }
-        } else {
-            Verdict::Outside { summary }
-        };
+        return waiting;
     };
 
     let owned = path.to_path_buf();
-    match check::normalize(&report, encoders, |progress| {
+    match check::normalize(&report, encode, encoders, |progress| {
         on_event(Event::Normalizing {
             path: owned.clone(),
             percent: progress.percent(),
         });
     }) {
-        Ok(_) => Verdict::Normalized { summary },
+        // What the re-encode was *for* is what it is reported as. A file brought into profile and a
+        // file merely made smaller are different pieces of news, and only one of them was ever
+        // unplayable.
+        Ok(_) => match waiting {
+            Verdict::Larger { .. } => Verdict::Shrunk { summary },
+            _ => Verdict::Normalized { summary },
+        },
         Err(error) => Verdict::Unreadable {
             why: format!("re-encoding failed: {error:#}"),
         },
@@ -688,6 +754,7 @@ fn quote(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::probe;
 
     /// Captured from yt-dlp 2026.07.04 rather than written by hand. The padding is real, and so is
     /// `Unknown B/s` on an early line.
@@ -772,6 +839,7 @@ mod tests {
             cookies_from_browser: Some("firefox".to_owned()),
             format: Some("from-the-list".to_owned()),
             sort: Some("from-the-list".to_owned()),
+            video: Some(size::Video::Tiny),
         };
 
         // Nobody said anything, so the list is heard on every one of them.
@@ -783,16 +851,99 @@ mod tests {
         assert_eq!(quiet.plan.cookies_from_browser.as_deref(), Some("firefox"));
         assert_eq!(quiet.plan.format.as_deref(), Some("from-the-list"));
         assert_eq!(quiet.plan.sort.as_deref(), Some("from-the-list"));
+        assert_eq!(quiet.plan.video, Some(size::Video::Tiny));
 
         // ...and an `Option` that was given is not overruled.
         let mut asked = request_over(plan_asking_nothing());
         asked.plan.limit = Some(3);
         asked.plan.cookies_from_browser = Some("chrome".to_owned());
         asked.plan.format = Some("from-the-flag".to_owned());
+        asked.plan.video = Some(size::Video::Full);
         asked.apply_list_settings(&said);
         assert_eq!(asked.plan.limit, Some(3));
         assert_eq!(asked.plan.cookies_from_browser.as_deref(), Some("chrome"));
         assert_eq!(asked.plan.format.as_deref(), Some("from-the-flag"));
+        assert_eq!(
+            asked.plan.video,
+            Some(size::Video::Full),
+            "asking for the largest size is asking, not staying quiet"
+        );
+    }
+
+    /// One file that arrived, in the shape nearly every fetch produces.
+    fn arrived(width: u32, height: u32) -> check::Report {
+        let info = probe::VideoInfo {
+            duration_ms: 273_020,
+            width,
+            height,
+            frame_rate_milli: 29_970,
+            audio_sample_rate: 44_100,
+            video_codec: "h264".to_owned(),
+            audio_codec: "aac".to_owned(),
+            pixel_format: "yuv420p".to_owned(),
+            audio_channels: 2,
+            title: None,
+            artist: None,
+        };
+        let path = PathBuf::from("Howl - Aeng Moo Sae.mp4");
+        check::Report {
+            mismatches: profile::DEFAULT.check(&info, &path),
+            path,
+            info,
+        }
+    }
+
+    /// **The claim the whole size choice rests on**: asking for a smaller picture is a request to
+    /// the site, not a licence to spend an hour of somebody's CPU. A file that arrives larger than
+    /// was asked for is in profile, is said to be larger, and is left alone.
+    #[test]
+    fn a_size_is_a_request_and_not_a_reason_to_re_encode() {
+        let report = arrived(1920, 1080);
+        assert!(report.in_profile(), "1080p is what packaging accepts");
+
+        let small = size::Video::Small.encode();
+        let (verdict, summary) = wanted_work(&report, small.exceeded_by(&report.info))
+            .expect("1080p overruns a 720p request");
+        assert!(matches!(verdict, Verdict::Larger { .. }), "{verdict:?}");
+        assert!(summary.contains("1280x720"), "{summary}");
+    }
+
+    /// A file inside the size it was fetched under is nothing to report and nothing to do.
+    #[test]
+    fn a_file_inside_the_size_asked_for_needs_nothing() {
+        let report = arrived(1280, 720);
+        let small = size::Video::Small.encode();
+        assert!(wanted_work(&report, small.exceeded_by(&report.info)).is_none());
+    }
+
+    /// Being outside the profile is about whether the file plays and is packaged, and is the more
+    /// serious of the two. A file that is both is reported as the one a person must act on.
+    #[test]
+    fn the_profile_is_answered_before_the_size() {
+        let mut report = arrived(3840, 2160);
+        report.info.video_codec = "vp9".to_owned();
+        report.mismatches = profile::DEFAULT.check(&report.info, &report.path);
+        assert!(!report.in_profile());
+
+        let tiny = size::Video::Tiny.encode();
+        let (verdict, summary) = wanted_work(&report, tiny.exceeded_by(&report.info))
+            .expect("outside the profile and oversized");
+        assert!(matches!(verdict, Verdict::Outside { .. }), "{verdict:?}");
+        assert!(summary.contains("VP9"), "{summary}");
+    }
+
+    /// The pixel format is the one finding that stops a file working, and it keeps saying so
+    /// whatever size was asked for.
+    #[test]
+    fn a_file_that_cannot_be_drawn_still_says_so() {
+        let mut report = arrived(1920, 1080);
+        report.info.pixel_format = "yuv444p".to_owned();
+        report.mismatches = profile::DEFAULT.check(&report.info, &report.path);
+
+        let small = size::Video::Small.encode();
+        let (verdict, _) =
+            wanted_work(&report, small.exceeded_by(&report.info)).expect("it cannot be drawn");
+        assert!(matches!(verdict, Verdict::Unplayable { .. }), "{verdict:?}");
     }
 
     /// A `bool` cannot tell *off* from *unset*, so a flag is the or of the two and a list that
@@ -851,6 +1002,7 @@ mod tests {
             archive: Some(PathBuf::from(".").join(args::ARCHIVE_NAME)),
             cookies_from_browser: None,
             subs: false,
+            video: None,
             format: None,
             sort: None,
             dry_run: false,
@@ -880,6 +1032,7 @@ mod tests {
             archive: Some(args::Plan::default_archive(out)),
             cookies_from_browser: None,
             subs: false,
+            video: None,
             format: None,
             sort: None,
             dry_run: false,

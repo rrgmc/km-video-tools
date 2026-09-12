@@ -165,6 +165,8 @@ pub struct Settings {
     pub format: Option<String>,
     /// `--sort ORDER`: replace the format sort order.
     pub sort: Option<String>,
+    /// `--video full|small|tiny`: how much picture to fetch.
+    pub video: Option<crate::size::Video>,
 }
 
 /// Reads one settings line into `settings`, and says whether it was one.
@@ -191,6 +193,12 @@ fn read_setting(settings: &mut Settings, line: &str) -> bool {
         }
         ("--format", value) if !value.is_empty() => settings.format = Some(value.to_owned()),
         ("--sort", value) if !value.is_empty() => settings.sort = Some(value.to_owned()),
+        // A word this build does not know ends the header, as an unparseable `--limit` does: the
+        // line becomes a URL, and yt-dlp refuses it in the words of the program that would know.
+        ("--video", value) if !value.is_empty() => match value.parse() {
+            Ok(video) => settings.video = Some(video),
+            Err(_) => return false,
+        },
         _ => return false,
     }
     true
@@ -457,6 +465,7 @@ mod tests {
              --cookies-from-browser firefox:work\n\
              --format bv*+ba/b\n\
              --sort res:1080,fps\n\
+             --video small\n\
              \n\
              https://example.invalid/a\n",
         );
@@ -472,6 +481,7 @@ mod tests {
                 cookies_from_browser: Some("firefox:work".to_owned()),
                 format: Some("bv*+ba/b".to_owned()),
                 sort: Some("res:1080,fps".to_owned()),
+                video: Some(crate::size::Video::Small),
             }
         );
         assert_eq!(entries, vec![Entry::plain("https://example.invalid/a")]);

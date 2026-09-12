@@ -56,15 +56,48 @@ pub struct Settings {
     /// A browser to take cookies from.
     #[serde(default)]
     pub cookies_from_browser: Option<String>,
+    /// How much picture to fetch, as [`km_video_core::size::Video`] spells it.
+    ///
+    /// **The word rather than the value**, so that a file written by a build knowing a fourth size
+    /// reads here as nothing remembered instead of as a refusal to load the folder beside it.
+    #[serde(default)]
+    pub video: String,
 }
 
 impl Settings {
+    /// The remembered size, where one was remembered and this build knows the word.
+    #[must_use]
+    pub fn video(&self) -> Option<km_video_core::size::Video> {
+        self.video.parse().ok()
+    }
+
     /// The remembered folder as a path, where one has been set.
     #[must_use]
     pub fn out(&self) -> Option<PathBuf> {
         let trimmed = self.out.trim();
         (!trimmed.is_empty()).then(|| PathBuf::from(trimmed))
     }
+}
+
+/// The word for a size this build does not know is nothing remembered, which is what keeps a
+/// settings file written by a later build from costing somebody their folder.
+#[cfg(test)]
+#[test]
+fn an_unknown_size_is_simply_nothing_chosen() {
+    let settings = Settings {
+        video: "enormous".to_owned(),
+        ..Settings::default()
+    };
+    assert_eq!(settings.video(), None);
+
+    let settings = Settings {
+        video: "tiny".to_owned(),
+        ..Settings::default()
+    };
+    assert_eq!(settings.video(), Some(km_video_core::size::Video::Tiny));
+
+    // Nothing written down at all is the ordinary first run, and reads the same way.
+    assert_eq!(Settings::default().video(), None);
 }
 
 /// Where the file lives, given the data directory.

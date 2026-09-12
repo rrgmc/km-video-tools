@@ -1,13 +1,18 @@
 //! The shape every video song is normalized to at packaging time, and the re-encode that gets it
 //! there.
 //!
-//! # This file is a copy, and the other one is authoritative
+//! # The profile is a copy, and the other one is authoritative
 //!
 //! The original is `tools/cmd/km-pack/src/profile.rs` in the karaoke app's repository, and that is
 //! the one that *decides*: it runs inside the packager, so what it accepts is what a package
 //! actually contains. This copy exists so the downloader can answer, before anything is packaged,
 //! whether what arrived will be copied or re-encoded — a question worth asking at download time,
 //! while the file is still in front of you and re-fetching at a different quality is one command.
+//!
+//! **What is copied is [`Profile`], [`DEFAULT`] and [`Profile::check`]** — the statement of what a
+//! package may contain. The re-encode below is this tool's own, because how to reach that shape is a
+//! separate question from what the shape is: a packager re-encodes what it was handed, and this
+//! chooses how much picture to spend disk on before anything is handed over. See [`crate::size`].
 //!
 //! Duplicating it costs the reason `km-pack` is a library, and the cost is accepted for one
 //! reason: taking the real one means taking `km-video` with it, and `km-video` is
@@ -56,6 +61,7 @@ use std::process::{Command, Stdio};
 
 use crate::child::without_a_console_window;
 use crate::probe::{VideoInfo, supports_pixel_format};
+use crate::size::Encode;
 use anyhow::{Context, Result, bail};
 
 /// The one shape a packaged video song is stored in.
@@ -287,18 +293,71 @@ impl Progress {
     }
 }
 
-/// Re-encodes `source` into `destination` in this profile.
+/// Everything ffmpeg is told between the input and the output.
+///
+/// A pure function of the three things that decide it, for [`crate::args::argv`]'s reason: which
+/// arguments an encode gets is the whole of what this half of the module chooses, and choosing them
+/// is only assertable in a test if it is separable from running them.
+#[must_use]
+pub fn encode_args(encode: &Encode, info: &VideoInfo, encoders: &Encoders) -> Vec<String> {
+    let mut args: Vec<String> = Vec::new();
+    let mut push = |values: &[&str]| args.extend(values.iter().map(|value| (*value).to_owned()));
+
+    if let Some(filter) = video_filter(encode, info) {
+        push(&["-vf", &filter]);
+    }
+
+    push(&["-c:v", encoders.h264]);
+    // Rate control differs between the two encoders and there is no common spelling. x264's CRF is
+    // quality-targeted and the right tool; openh264 has no equivalent, so it gets a bitrate chosen
+    // to look similar at the same height.
+    if encoders.h264 == "libx264" {
+        push(&["-preset", "medium", "-crf", &encode.crf.to_string()]);
+    } else {
+        push(&["-b:v", encode.bitrate]);
+    }
+    // Named explicitly rather than left to the encoder's default. This is the one setting the
+    // machine cannot cope without, so it does not get to be implied.
+    push(&["-pix_fmt", "yuv420p"]);
+
+    // **The sound is the song, and a second AAC generation spends quality to gain nothing.** Where
+    // the source already carries the codec packaging wants, the stream is copied and the audio in
+    // the finished file is the audio that arrived, byte for byte. Anything else — Opus from a VP9
+    // download, most often — is encoded to the one codec the profile names.
+    //
+    // **The channel count is left alone where the stream is copied**, because the profile says
+    // nothing about it: the appliance resamples whatever it meets to interleaved stereo `f32`.
+    if info.audio_codec == DEFAULT.audio_codec {
+        push(&["-c:a", "copy"]);
+    } else {
+        push(&["-c:a", "aac", "-b:a", "192k", "-ac", "2"]);
+    }
+
+    // Puts the index at the front, so the machine can start playing without reading to the end.
+    push(&["-movflags", "+faststart"]);
+    // The container, said out loud rather than inferred from the output's name. ffmpeg chooses a
+    // muxer by file extension, and this writes through a temporary `.part` name — so leaving it
+    // implicit fails with `Unable to choose an output format`, which reads like a broken input
+    // rather than a naming detail. Found by running it.
+    push(&["-f", encode.container]);
+    // Progress on stdout, so it can be read without competing with ffmpeg's diagnostics.
+    push(&["-progress", "pipe:1"]);
+
+    args
+}
+
+/// Re-encodes `source` into `destination`, aiming at `encode`.
 ///
 /// `info` is the source's probe, which is what decides whether scaling and frame-rate conversion are
 /// needed at all — neither filter is applied to a file already within the ceiling, because scaling a
-/// picture to its own size is a lossy no-op.
+/// picture to its own size is a lossy no-op — and whether the sound can be carried over untouched.
 ///
 /// `on_progress` is called as ffmpeg reports, so a caller can show a bar during what is minutes of
 /// work on a long song. It is called from this thread, between reads.
 pub fn transcode(
     source: &Path,
     destination: &Path,
-    profile: &Profile,
+    encode: &Encode,
     info: &VideoInfo,
     encoders: &Encoders,
     mut on_progress: impl FnMut(Progress),
@@ -307,33 +366,7 @@ pub fn transcode(
     without_a_console_window(&mut command);
     command.args(["-hide_banner", "-nostdin", "-loglevel", "error", "-y"]);
     command.arg("-i").arg(source);
-
-    if let Some(filter) = video_filter(profile, info) {
-        command.args(["-vf", &filter]);
-    }
-
-    command.args(["-c:v", encoders.h264]);
-    // Rate control differs between the two encoders and there is no common spelling. x264's CRF is
-    // quality-targeted and the right tool; openh264 has no equivalent, so it gets a bitrate chosen
-    // to look similar at 1080p.
-    if encoders.h264 == "libx264" {
-        command.args(["-preset", "medium", "-crf", "20"]);
-    } else {
-        command.args(["-b:v", "4M"]);
-    }
-    // Named explicitly rather than left to the encoder's default. This is the one setting the
-    // machine cannot cope without, so it does not get to be implied.
-    command.args(["-pix_fmt", "yuv420p"]);
-    command.args(["-c:a", "aac", "-b:a", "192k", "-ac", "2"]);
-    // Puts the index at the front, so the machine can start playing without reading to the end.
-    command.args(["-movflags", "+faststart"]);
-    // The container, said out loud rather than inferred from the output's name. ffmpeg chooses a
-    // muxer by file extension, and this writes through a temporary `.part` name — so leaving it
-    // implicit fails with `Unable to choose an output format`, which reads like a broken input
-    // rather than a naming detail. Found by running it.
-    command.args(["-f", profile.container]);
-    // Progress on stdout, so it can be read without competing with ffmpeg's diagnostics.
-    command.args(["-progress", "pipe:1"]);
+    command.args(encode_args(encode, info, encoders));
     command.arg(destination);
 
     command.stdin(Stdio::null());
@@ -393,21 +426,21 @@ pub fn transcode(
 /// Built from the probe rather than written once and always applied, because `scale` and `fps` are
 /// not free: scaling a picture to the size it already is still resamples it, and asking for 30 fps
 /// from a 25 fps source *invents* frames.
-fn video_filter(profile: &Profile, info: &VideoInfo) -> Option<String> {
+fn video_filter(encode: &Encode, info: &VideoInfo) -> Option<String> {
     let mut parts: Vec<String> = Vec::new();
 
-    if info.width > profile.max_width || info.height > profile.max_height {
+    if info.width > encode.max_width || info.height > encode.max_height {
         // `decrease` keeps the aspect ratio and only ever shrinks; `force_divisible_by=2` keeps both
         // sides even, which 4:2:0 requires and which an odd source height would otherwise break.
         parts.push(format!(
             "scale='min({w},iw)':'min({h},ih)':force_original_aspect_ratio=decrease:\
              force_divisible_by=2",
-            w = profile.max_width,
-            h = profile.max_height
+            w = encode.max_width,
+            h = encode.max_height
         ));
     }
-    if info.frame_rate_milli > profile.max_frame_rate_milli {
-        parts.push(format!("fps={}", profile.max_frame_rate_milli / 1000));
+    if info.frame_rate_milli > encode.max_frame_rate_milli {
+        parts.push(format!("fps={}", encode.max_frame_rate_milli / 1000));
     }
 
     (!parts.is_empty()).then(|| parts.join(","))
@@ -430,6 +463,7 @@ fn progress_line_ms(line: &str) -> Option<u32> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::size::Video;
 
     /// The real sample song's shape: what a yt-dlp download asked for AVC and AAC actually arrives
     /// as. Written down here because the whole probe-first design rests on this being in profile.
@@ -505,9 +539,124 @@ mod tests {
         assert!(DEFAULT.check(&info, Path::new("a.mp4")).is_empty());
     }
 
+    /// The encoders a machine turns out to have, as the two shapes of rate control this has to
+    /// aim through.
+    fn x264() -> Encoders {
+        Encoders { h264: "libx264" }
+    }
+
     #[test]
     fn a_file_already_within_the_ceilings_gets_no_filters() {
-        assert_eq!(video_filter(&DEFAULT, &in_profile()), None);
+        assert_eq!(video_filter(&Video::Full.encode(), &in_profile()), None);
+    }
+
+    /// The whole argv for the case every fetch produces, element by element, so that a change to
+    /// any one of these arguments is a change somebody made on purpose.
+    #[test]
+    fn the_largest_step_encodes_what_it_always_has() {
+        let args = encode_args(&Video::Full.encode(), &in_profile(), &x264());
+        assert_eq!(
+            args,
+            [
+                "-c:v",
+                "libx264",
+                "-preset",
+                "medium",
+                "-crf",
+                "20",
+                "-pix_fmt",
+                "yuv420p",
+                "-c:a",
+                "copy",
+                "-movflags",
+                "+faststart",
+                "-f",
+                "mp4",
+                "-progress",
+                "pipe:1",
+            ]
+        );
+    }
+
+    /// The point of the whole exercise: a song that arrived carrying what packaging wants keeps the
+    /// sound it arrived with, byte for byte, and anything else is brought to the one codec named.
+    #[test]
+    fn aac_is_carried_over_and_anything_else_is_encoded() {
+        let args = encode_args(&Video::Small.encode(), &in_profile(), &x264());
+        assert!(
+            args.windows(2).any(|pair| pair == ["-c:a", "copy"]),
+            "{args:?}"
+        );
+        assert!(!args.iter().any(|arg| arg == "-b:a"), "{args:?}");
+        assert!(!args.iter().any(|arg| arg == "-ac"), "{args:?}");
+
+        let mut opus = in_profile();
+        opus.audio_codec = "opus".to_owned();
+        let args = encode_args(&Video::Small.encode(), &opus, &x264());
+        assert!(!args.iter().any(|arg| arg == "copy"), "{args:?}");
+        for expected in [["-c:a", "aac"], ["-b:a", "192k"], ["-ac", "2"]] {
+            assert!(
+                args.windows(2).any(|pair| pair == expected),
+                "{expected:?} missing from {args:?}"
+            );
+        }
+    }
+
+    /// A smaller step scales the picture and compresses it harder, and does neither to the sound.
+    #[test]
+    fn a_smaller_step_scales_and_compresses_harder() {
+        let args = encode_args(&Video::Small.encode(), &in_profile(), &x264());
+        let filter = args
+            .iter()
+            .position(|arg| arg == "-vf")
+            .and_then(|at| args.get(at + 1))
+            .expect("1080p overruns 720p, so it is scaled");
+        assert!(filter.contains("min(1280,iw)"), "{filter}");
+        assert!(filter.contains("min(720,ih)"), "{filter}");
+        assert!(
+            filter.contains("force_original_aspect_ratio=decrease"),
+            "{filter}"
+        );
+        assert!(
+            args.windows(2).any(|pair| pair == ["-crf", "24"]),
+            "{args:?}"
+        );
+        assert!(
+            args.windows(2).any(|pair| pair == ["-c:a", "copy"]),
+            "{args:?}"
+        );
+    }
+
+    /// Scaling a picture to the size it already is still resamples it, so a source inside the step
+    /// it was fetched under is left alone.
+    #[test]
+    fn a_source_already_inside_its_step_is_not_scaled() {
+        let mut small = in_profile();
+        small.width = 1280;
+        small.height = 720;
+        let args = encode_args(&Video::Small.encode(), &small, &x264());
+        assert!(!args.iter().any(|arg| arg == "-vf"), "{args:?}");
+    }
+
+    /// The encoder without a constant rate factor gets the one thing it does take, and gets a
+    /// different one per step.
+    #[test]
+    fn openh264_gets_a_bitrate_because_it_has_no_crf() {
+        let openh264 = Encoders {
+            h264: "libopenh264",
+        };
+        for (step, bitrate) in [
+            (Video::Full, "4M"),
+            (Video::Small, "2M"),
+            (Video::Tiny, "1M"),
+        ] {
+            let args = encode_args(&step.encode(), &in_profile(), &openh264);
+            assert!(!args.iter().any(|arg| arg == "-crf"), "{step}: {args:?}");
+            assert!(
+                args.windows(2).any(|pair| pair == ["-b:v", bitrate]),
+                "{step}: {args:?}"
+            );
+        }
     }
 
     #[test]
@@ -516,7 +665,7 @@ mod tests {
         info.width = 3840;
         info.height = 2160;
         info.frame_rate_milli = 60_000;
-        let filter = video_filter(&DEFAULT, &info).expect("both filters apply");
+        let filter = video_filter(&Video::Full.encode(), &info).expect("both filters apply");
         assert!(filter.contains("scale="), "{filter}");
         assert!(
             filter.contains("force_original_aspect_ratio=decrease"),

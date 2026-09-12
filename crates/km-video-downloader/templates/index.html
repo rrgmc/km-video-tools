@@ -95,6 +95,29 @@
 
   <h3>How</h3>
   <div class="options">
+    {# First, because it is the one control here that changes what is downloaded rather than what is
+       done with it afterwards.
+
+       Three named sizes rather than a height and a quality number: the two move together, and the
+       numbers behind each word belong to `size::Video` where a test holds them inside the packaging
+       profile.
+
+       The sentence about the sound is the whole point of the control, and it is true twice over.
+       yt-dlp picks the audio stream separately from the picture and muxes them, so a shorter picture
+       fetches the same audio bytes; and a re-encode copies an AAC stream through rather than
+       rebuilding it. #}
+    <div class="field wide">
+      <span>Video size</span>
+      {% for choice in sizes %}
+      <label class="check">
+        <input type="radio" name="video" value="{{ choice.word }}"
+               {% if video == choice.word %}checked{% endif %}>
+        <span>{{ choice.label }}</span>
+      </label>
+      {% endfor %}
+      <small>The sound is fetched and stored at full quality whichever you choose.</small>
+    </div>
+
     <label class="check">
       <input type="checkbox" name="playlist" {% if playlist %}checked{% endif %}>
       <span>Download whole playlist</span>
@@ -102,7 +125,8 @@
 
     <label class="check">
       <input type="checkbox" name="normalize" {% if normalize %}checked{% endif %}>
-      <span>Re-encode anything outside the packaging profile</span>
+      <span>Re-encode anything outside the packaging profile, or larger than the size above
+        <small>Takes minutes per song.</small></span>
     </label>
 
     <label class="check">

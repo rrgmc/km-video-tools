@@ -69,6 +69,10 @@ pub struct Index {
     pub limit: String,
     /// A browser to take cookies from, as typed.
     pub cookies_from_browser: String,
+    /// Which of the three sizes is chosen, as [`km_video_core::size::Video`] spells it.
+    pub video: &'static str,
+    /// The sizes on offer, in the order they are shown.
+    pub sizes: Vec<SizeChoice>,
     /// The browsers yt-dlp can read cookies out of, for the picker.
     pub browsers: &'static [&'static str],
     /// The job, running or lately finished.
@@ -88,6 +92,36 @@ pub fn render_page(state: &State) -> Response {
 }
 
 /// The page as it stands.
+/// One size as the radio group shows it.
+///
+/// **The label is here and not in `km_video_core::size`**, which names the sizes for a machine and
+/// decides no wording. What a person reads belongs to whichever program shows it.
+pub struct SizeChoice {
+    /// The value posted back, and what [`Index::video`] is compared against.
+    pub word: &'static str,
+    /// What the row says.
+    pub label: String,
+}
+
+/// The three sizes, worded for the page.
+fn sizes() -> Vec<SizeChoice> {
+    km_video_core::size::Video::ALL
+        .into_iter()
+        .map(|size| SizeChoice {
+            word: size.word(),
+            label: format!(
+                "{} ({}p)",
+                match size {
+                    km_video_core::size::Video::Full => "Full",
+                    km_video_core::size::Video::Small => "Small",
+                    km_video_core::size::Video::Tiny => "Tiny",
+                },
+                size.max_height()
+            ),
+        })
+        .collect()
+}
+
 fn page(state: &State) -> Index {
     let settings = state.settings();
     let out = settings.out();
@@ -122,6 +156,7 @@ fn page(state: &State) -> Index {
             all.no_archive |= said.no_archive;
             all.limit = said.limit.or(all.limit);
             all.cookies_from_browser = said.cookies_from_browser.or(all.cookies_from_browser);
+            all.video = said.video.or(all.video);
             all
         });
 
@@ -152,6 +187,14 @@ fn page(state: &State) -> Index {
             .clone()
             .or_else(|| settings.cookies_from_browser.clone())
             .unwrap_or_default(),
+        // The word, because the template compares it against three literals and an enum would
+        // have to be spelled for askama anyway.
+        video: asked
+            .video
+            .or_else(|| settings.video())
+            .unwrap_or_default()
+            .word(),
+        sizes: sizes(),
         browsers: &km_video_core::args::COOKIE_BROWSERS,
         job: state.job().map(|job| job.view()),
         results: state.job().map(|job| job.results()).unwrap_or_default(),
@@ -280,7 +323,7 @@ mod tests {
         let own = songs.join(km_video_core::args::BATCH_NAME);
         std::fs::write(
             &own,
-            "--normalize\n--subs\n--no-archive\n--limit 25\n--cookies-from-browser firefox\n\nhttps://example.invalid/a\n",
+            "--normalize\n--subs\n--no-archive\n--limit 25\n--cookies-from-browser firefox\n--video tiny\n\nhttps://example.invalid/a\n",
         )
         .expect("a list with a header");
 
@@ -296,6 +339,7 @@ mod tests {
         assert!(page.no_archive);
         assert_eq!(page.limit, "25");
         assert_eq!(page.cookies_from_browser, "firefox");
+        assert_eq!(page.video, "tiny");
         assert!(
             !page.playlist,
             "and says nothing about what it did not mention"
@@ -304,6 +348,26 @@ mod tests {
             page.own_list_count, 1,
             "the header is not one of the links, which is the bug this would hide"
         );
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A page nobody has told anything shows the largest size, which is what a fetch that names no
+    /// size gets.
+    #[test]
+    fn the_page_starts_at_the_size_a_plain_fetch_uses() {
+        let dir = std::env::temp_dir().join(format!(
+            "km-video-downloader-default-size-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("a folder to work in");
+
+        let state = State::new(dir.join("data"), None);
+        let page = page(&state);
+        assert_eq!(page.video, km_video_core::size::Video::default().word());
+        assert_eq!(page.sizes.len(), km_video_core::size::Video::ALL.len());
+        assert_eq!(page.sizes[0].word, "full");
 
         let _ = std::fs::remove_dir_all(&dir);
     }

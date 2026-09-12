@@ -12,6 +12,7 @@
 //! * [`run`] — finding yt-dlp, running it, and reading back what it did.
 //! * [`probe`] — what a file that landed says about itself, read through `ffprobe`.
 //! * [`profile`] — the shape a karaoke package wants, and the re-encode that reaches it.
+//! * [`size`] — how much picture to ask for, and what a re-encode at that size aims at.
 //! * [`check`] — the three of those in the order that makes a verdict.
 //! * [`fetch`] — all of it, end to end, reported as events.
 //! * [`child`] — the one thing every subprocess above has in common on Windows: no console
@@ -44,3 +45,4 @@ pub mod list;
 pub mod probe;
 pub mod profile;
 pub mod run;
+pub mod size;
