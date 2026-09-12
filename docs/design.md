@@ -8,9 +8,16 @@ it passes, and that is only assertable in a test if choosing them is separable f
 
 ## The three arguments that matter
 
-A format cap at 1080, then a **sort** ranking what is left by codec — a sort rather than a longer
-fallback chain: **a chain that runs out of alternatives fails the download, whereas a sort takes the
-nearest thing and lets the check afterwards say what was settled for.**
+A format cap at the height `--video` asked for, then a **sort** ranking what is left by codec — a
+sort rather than a longer fallback chain: **a chain that runs out of alternatives fails the download,
+whereas a sort takes the nearest thing and lets the check afterwards say what was settled for.**
+
+**The cap and the sort name one height**, because the selector's last alternative carries no cap at
+all: where every capped branch fails, the sort is the only thing deciding what arrives.
+
+**The height reaches the picture and nothing else.** `bv*` and `ba` are chosen separately and muxed,
+so a smaller size fetches the same audio stream a larger one would. That is the whole of why the size
+is worth offering: it is bytes off the picture at no cost to the song.
 
 And a conditional output template, so a video with a known artist is `Artist - Title.mp4` and one
 without is `Title.mp4` rather than `NA - Title.mp4`.
@@ -43,6 +50,7 @@ occupies a slot in the `1:N` of a playlist that contains it.
 --cookies-from-browser firefox
 --normalize
 --limit 50
+--video small
 
 https://youtu.be/aaaaaaaaaaa
 --out anime https://youtu.be/bbbbbbbbbbb
@@ -60,8 +68,8 @@ A line the header does not understand ends it and becomes a link, so a typo arri
 saying it is not a URL, in the words of the program that would know.
 
 **What is asked for wins, where it can be told to have been asked for.** `--limit`, `--format`,
-`--sort` and `--cookies-from-browser` take a value, so *not given* is a thing a command line can
-say and the list is heard. A flag cannot: off and unset are the same `bool`, on a command line as
+`--sort`, `--video` and `--cookies-from-browser` take a value, so *not given* is a thing a command
+line can say and the list is heard. A flag cannot: off and unset are the same `bool`, on a command line as
 much as in a form, so those are the or of the two and a list that says `--subs` cannot be talked
 out of it. In the window the same settings arrive as **ticked boxes** rather than as behaviour, so
 the page shows what the list asked for and lets it be changed.

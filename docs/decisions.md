@@ -39,6 +39,39 @@ carries a header saying so.
 **Drift is bounded.** The numbers are anchored to what the appliance's decoder can draw — it copies
 three planes and contains no `swscale`, which is why the pixel format is the only blocking finding.
 
+## A named size shrinks the download, and the sound is never re-encoded to save room
+
+For karaoke the song is the audio and the picture is a caption over a background, so the picture is
+where disk can be saved and the sound is where it cannot. `--video full|small|tiny` is that choice,
+in `km-video-core/src/size.rs`.
+
+**Every size lands inside the packaging profile, so the karaoke app never has to agree to this.**
+`max_width`, `max_height` and `max_frame_rate_milli` are ceilings, so a 720p H.264/AAC MP4 is as much
+in profile as a 1080p one and the packager copies its bytes either way. `Profile`, `DEFAULT` and
+`Profile::check` are untouched; a test holds all three sizes inside them.
+
+**The saving is in the download, and the re-encode is the fallback.** yt-dlp chooses the video and
+audio streams separately and muxes them, so a height cap changes the picture and nothing else: the
+audio of a 720p download is the audio of a 1080p one, to the byte. That costs no CPU and is where
+the whole benefit is. Re-encoding a picture that arrived too large costs minutes per song, and a
+site that offers 1080p almost always offers 720p, so it is the exception.
+
+**`--video` is a size and `--normalize` is permission to spend CPU.** A file that arrives larger than
+was asked for is reported as `Larger` and left alone. The alternative makes `--video small` silently
+more expensive than asking for nothing, in the case hardest to notice: one video in a playlist of
+forty with no smaller rendition on offer.
+
+**The re-encode is this repository's own, and the profile beside it is still the copy.** How to reach
+the shape is a different question from what the shape is: a packager re-encodes what it was handed,
+and this chooses how much picture to spend disk on before anything is handed over.
+
+**AAC audio is carried over rather than rebuilt.** Where a file already has the codec packaging
+wants, `-c:a copy` makes the sound in the finished file the sound that arrived; anything else is
+encoded to AAC at 192k as before. This also leaves a multichannel source at its own channel count,
+which costs the profile nothing: it says nothing about channels, because the appliance resamples
+whatever it meets to interleaved stereo `f32`. Drift from the karaoke app's copy is bounded to the
+numbers its decoder can draw, and the audio codec is the one thing the profile says about sound.
+
 ## A file is read with `ffprobe`, not with `ffmpeg-next`
 
 A second implementation of what the karaoke app's `km_video::probe` does, deliberately.

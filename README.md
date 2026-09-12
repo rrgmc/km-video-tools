@@ -32,6 +32,27 @@ km-video-fetch --from-file urls.txt --out ./songs
 km-video-downloader                    # the same thing, with a window
 ```
 
+## Smaller files, without touching the song
+
+A karaoke video is a caption over a background, so the picture is where disk can be saved. `--video`
+asks for less of it:
+
+```sh
+km-video-fetch '<url>' --out ./songs --video small   # 720p, roughly half the size
+km-video-fetch '<url>' --out ./songs --video tiny    # 480p
+```
+
+**The sound is the same whichever you choose.** yt-dlp picks the video and audio streams separately
+and muxes them, so a shorter picture fetches the audio a full-size one would have, byte for byte.
+The saving costs no processing time and nothing you can hear.
+
+`full` is what you get if you say nothing, and is 1080p. Every size is one a karaoke package stores
+as it is, so nothing downstream re-encodes what you chose.
+
+With `--normalize`, a video that arrives larger than you asked for is re-encoded down to it — which
+happens only where a site had nothing smaller on offer. That takes minutes per song, so it waits to
+be asked. A re-encode never rebuilds AAC audio: it copies the stream through untouched.
+
 A folder remembers what has already been fetched into it (`.km-fetched.txt`), and can carry its own
 list of what to fetch (`km-video-fetch.kmvf`), so re-running over a playlist picks up only what is
 new. The page reads that list too, and offers it as one click when it is there.
@@ -61,13 +82,14 @@ Lines **above the first link** are a header, and say what is true of the whole l
 --cookies-from-browser firefox
 --normalize
 --limit 50
+--video small
 
 https://youtu.be/aaaaaaaaaaa
 ```
 
 It may carry `--playlist`, `--subs`, `--normalize`, `--no-archive`, `--limit N`,
-`--cookies-from-browser BROWSER`, `--format SELECTOR` and `--sort ORDER` — the settings a whole run
-shares, spelled as the flags they override. What you pass on the command line wins over what the
+`--cookies-from-browser BROWSER`, `--format SELECTOR`, `--sort ORDER` and `--video SIZE` — the
+settings a whole run shares, spelled as the flags they override. What you pass on the command line wins over what the
 file says; in the window they arrive as ticked boxes you can untick. A folder that always needs a
 cookie jar says so once instead of being retyped.
 
