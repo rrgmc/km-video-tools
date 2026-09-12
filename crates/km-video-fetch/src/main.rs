@@ -35,7 +35,7 @@ use std::process::ExitCode;
 
 use anyhow::{Result, bail};
 use clap::Parser;
-use km_video_core::{args, fetch, list, run};
+use km_video_core::{args, fetch, list, run, size};
 
 /// Fetch video songs with yt-dlp, in the shape packaging wants them.
 #[derive(Debug, Parser)]
@@ -56,7 +56,8 @@ struct Cli {
     ///
     /// Lines before the first link are a header, and may carry `--playlist`, `--subs`,
     /// `--normalize`, `--no-archive`, `--limit N`, `--cookies-from-browser BROWSER`,
-    /// `--format SELECTOR` and `--sort ORDER` for the whole list. What is given here wins.
+    /// `--format SELECTOR`, `--sort ORDER` and `--video SIZE` for the whole list. What is given
+    /// here wins.
     #[arg(long, value_name = "PATH")]
     from_file: Option<PathBuf>,
 
@@ -97,6 +98,17 @@ struct Cli {
     /// Replace the format sort order.
     #[arg(long, value_name = "ORDER")]
     sort: Option<String>,
+
+    /// How much picture to fetch: full (1080p), small (720p) or tiny (480p).
+    ///
+    /// The sound is fetched and stored at full quality whichever you choose, so a smaller size
+    /// costs nothing you can hear. With --normalize, anything that lands larger than this is
+    /// re-encoded down to it.
+    ///
+    /// --format replaces the whole selector, so where both are given --format decides what is
+    /// downloaded and this decides what --normalize re-encodes to.
+    #[arg(long, value_name = "SIZE")]
+    video: Option<size::Video>,
 
     /// Re-encode anything that landed outside the packaging profile.
     #[arg(long)]
@@ -176,6 +188,7 @@ fn run() -> Result<bool> {
             archive: (!cli.no_archive).then(|| args::Plan::default_archive(&cli.out)),
             cookies_from_browser: cli.cookies_from_browser.clone(),
             subs: cli.subs,
+            video: cli.video,
             format: cli.format.clone(),
             sort: cli.sort.clone(),
             dry_run: cli.dry_run,
@@ -335,6 +348,10 @@ fn arrival(record: &run::Record, verdict: &fetch::Verdict) -> (String, Option<St
         )),
         V::Unplayable { summary } => Some(format!("cannot be played as it is: {summary}")),
         V::Normalized { summary } => Some(format!("re-encoded into profile ({summary})")),
+        V::Larger { summary } => Some(format!(
+            "in profile, and larger than the size asked for: {summary}"
+        )),
+        V::Shrunk { summary } => Some(format!("re-encoded smaller ({summary})")),
         V::Unreadable { why } => Some(format!("could not be probed: {why}")),
         V::NotFetched => None,
     };
@@ -379,6 +396,8 @@ mod tests {
             "bestvideo+bestaudio",
             "--sort",
             "res",
+            "--video",
+            "small",
             "--normalize",
             "--strict",
             "--dry-run",
@@ -395,11 +414,33 @@ mod tests {
         assert!(cli.no_archive);
         assert_eq!(cli.cookies_from_browser.as_deref(), Some("firefox"));
         assert!(cli.subs);
+        assert_eq!(cli.video, Some(size::Video::Small));
         assert!(cli.normalize);
         assert!(cli.strict);
         assert!(cli.dry_run);
         assert!(cli.show_command);
         assert_eq!(cli.targets, vec!["https://example.invalid/a".to_owned()]);
+    }
+
+    /// A size nobody named stays unsaid, so that a list saying one is heard. The flag carrying a
+    /// default instead would overrule every list in the tree with a word nobody typed.
+    #[test]
+    fn a_size_nobody_asked_for_is_left_unsaid() {
+        let cli = Cli::try_parse_from(["km-video-fetch", "https://example.invalid/a"])
+            .expect("a URL is enough");
+        assert_eq!(cli.video, None);
+    }
+
+    /// The three words reach a person from whichever surface refused them.
+    #[test]
+    fn an_unknown_size_is_refused_by_name() {
+        let refused = Cli::try_parse_from(["km-video-fetch", "--video", "huge", "x"])
+            .expect_err("huge is not a size");
+        let said = refused.to_string();
+        assert!(said.contains("huge"), "{said}");
+        for word in size::Video::WORDS {
+            assert!(said.contains(word), "{said}");
+        }
     }
 
     #[test]

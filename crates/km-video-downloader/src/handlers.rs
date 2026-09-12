@@ -120,6 +120,7 @@ pub async fn start(AxumState(state): AxumState<State>, multipart: Multipart) -> 
     settings.subs = form.subs;
     settings.limit = form.limit;
     settings.cookies_from_browser = form.cookies_from_browser.clone();
+    settings.video = form.video.unwrap_or_default().word().to_owned();
     state.remember(settings.clone());
 
     let entries = form.entries();
@@ -136,6 +137,10 @@ pub async fn start(AxumState(state): AxumState<State>, multipart: Multipart) -> 
     };
 
     // **The two settings a list may carry that this page has no control for.**
+    //
+    // `--video` is not among them: the page shows it, `views::page` has already drawn a list's
+    // choice onto the radio group, and folding it in here would put back a size somebody had just
+    // changed.
     //
     // Everything else a header can say is drawn onto a box or a field by `views::page`, so the
     // form above already carries it and folding it in again here would put back what somebody had
@@ -165,6 +170,7 @@ pub async fn start(AxumState(state): AxumState<State>, multipart: Multipart) -> 
             archive,
             cookies_from_browser: form.cookies_from_browser,
             subs: form.subs,
+            video: form.video,
             format: asked.format,
             sort: asked.sort,
             dry_run: form.dry_run,
@@ -310,6 +316,8 @@ struct Form {
     dry_run: bool,
     limit: Option<u32>,
     cookies_from_browser: Option<String>,
+    /// Which of the three sizes the radio group carried.
+    video: Option<km_video_core::size::Video>,
 }
 
 impl Form {
@@ -346,6 +354,9 @@ impl Form {
                 "no_archive" => form.no_archive = true,
                 "dry_run" => form.dry_run = true,
                 "limit" => form.limit = text.trim().parse().ok(),
+                // A word this build does not know is nothing chosen rather than a refusal, which is
+                // `limit`'s treatment of a number it cannot read.
+                "video" => form.video = text.trim().parse().ok(),
                 "cookies_from_browser" => {
                     form.cookies_from_browser =
                         (!text.trim().is_empty()).then(|| text.trim().to_owned());

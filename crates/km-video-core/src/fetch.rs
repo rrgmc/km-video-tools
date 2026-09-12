@@ -754,6 +754,7 @@ fn quote(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::probe;
 
     /// Captured from yt-dlp 2026.07.04 rather than written by hand. The padding is real, and so is
     /// `Unknown B/s` on an early line.
@@ -850,16 +851,99 @@ mod tests {
         assert_eq!(quiet.plan.cookies_from_browser.as_deref(), Some("firefox"));
         assert_eq!(quiet.plan.format.as_deref(), Some("from-the-list"));
         assert_eq!(quiet.plan.sort.as_deref(), Some("from-the-list"));
+        assert_eq!(quiet.plan.video, Some(size::Video::Tiny));
 
         // ...and an `Option` that was given is not overruled.
         let mut asked = request_over(plan_asking_nothing());
         asked.plan.limit = Some(3);
         asked.plan.cookies_from_browser = Some("chrome".to_owned());
         asked.plan.format = Some("from-the-flag".to_owned());
+        asked.plan.video = Some(size::Video::Full);
         asked.apply_list_settings(&said);
         assert_eq!(asked.plan.limit, Some(3));
         assert_eq!(asked.plan.cookies_from_browser.as_deref(), Some("chrome"));
         assert_eq!(asked.plan.format.as_deref(), Some("from-the-flag"));
+        assert_eq!(
+            asked.plan.video,
+            Some(size::Video::Full),
+            "asking for the largest size is asking, not staying quiet"
+        );
+    }
+
+    /// One file that arrived, in the shape nearly every fetch produces.
+    fn arrived(width: u32, height: u32) -> check::Report {
+        let info = probe::VideoInfo {
+            duration_ms: 273_020,
+            width,
+            height,
+            frame_rate_milli: 29_970,
+            audio_sample_rate: 44_100,
+            video_codec: "h264".to_owned(),
+            audio_codec: "aac".to_owned(),
+            pixel_format: "yuv420p".to_owned(),
+            audio_channels: 2,
+            title: None,
+            artist: None,
+        };
+        let path = PathBuf::from("Howl - Aeng Moo Sae.mp4");
+        check::Report {
+            mismatches: profile::DEFAULT.check(&info, &path),
+            path,
+            info,
+        }
+    }
+
+    /// **The claim the whole size choice rests on**: asking for a smaller picture is a request to
+    /// the site, not a licence to spend an hour of somebody's CPU. A file that arrives larger than
+    /// was asked for is in profile, is said to be larger, and is left alone.
+    #[test]
+    fn a_size_is_a_request_and_not_a_reason_to_re_encode() {
+        let report = arrived(1920, 1080);
+        assert!(report.in_profile(), "1080p is what packaging accepts");
+
+        let small = size::Video::Small.encode();
+        let (verdict, summary) = wanted_work(&report, small.exceeded_by(&report.info))
+            .expect("1080p overruns a 720p request");
+        assert!(matches!(verdict, Verdict::Larger { .. }), "{verdict:?}");
+        assert!(summary.contains("1280x720"), "{summary}");
+    }
+
+    /// A file inside the size it was fetched under is nothing to report and nothing to do.
+    #[test]
+    fn a_file_inside_the_size_asked_for_needs_nothing() {
+        let report = arrived(1280, 720);
+        let small = size::Video::Small.encode();
+        assert!(wanted_work(&report, small.exceeded_by(&report.info)).is_none());
+    }
+
+    /// Being outside the profile is about whether the file plays and is packaged, and is the more
+    /// serious of the two. A file that is both is reported as the one a person must act on.
+    #[test]
+    fn the_profile_is_answered_before_the_size() {
+        let mut report = arrived(3840, 2160);
+        report.info.video_codec = "vp9".to_owned();
+        report.mismatches = profile::DEFAULT.check(&report.info, &report.path);
+        assert!(!report.in_profile());
+
+        let tiny = size::Video::Tiny.encode();
+        let (verdict, summary) = wanted_work(&report, tiny.exceeded_by(&report.info))
+            .expect("outside the profile and oversized");
+        assert!(matches!(verdict, Verdict::Outside { .. }), "{verdict:?}");
+        assert!(summary.contains("VP9"), "{summary}");
+    }
+
+    /// The pixel format is the one finding that stops a file working, and it keeps saying so
+    /// whatever size was asked for.
+    #[test]
+    fn a_file_that_cannot_be_drawn_still_says_so() {
+        let mut report = arrived(1920, 1080);
+        report.info.pixel_format = "yuv444p".to_owned();
+        report.mismatches = profile::DEFAULT.check(&report.info, &report.path);
+
+        let small = size::Video::Small.encode();
+        let (verdict, _) =
+            wanted_work(&report, small.exceeded_by(&report.info)).expect("it cannot be drawn");
+        assert!(matches!(verdict, Verdict::Unplayable { .. }), "{verdict:?}");
     }
 
     /// A `bool` cannot tell *off* from *unset*, so a flag is the or of the two and a list that

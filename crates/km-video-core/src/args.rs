@@ -557,8 +557,8 @@ mod tests {
         assert_eq!(sort_for(Video::Full.max_height()), SORT);
     }
 
-    /// Both halves move together. Ranking by a size the ceiling no longer admits would take the
-    /// largest copy of everything that got through.
+    /// Both halves move together. Ranking by a size above the ceiling would take the largest copy
+    /// of everything the ceiling let through.
     #[test]
     fn a_smaller_step_asks_a_site_for_less() {
         let mut plan = plan();

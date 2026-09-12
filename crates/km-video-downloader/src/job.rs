@@ -323,6 +323,11 @@ fn arrival(record: &km_video_core::run::Record, verdict: &fetch::Verdict) -> Arr
         ),
         V::Unplayable { summary } => (format!("cannot be played as it is: {summary}"), "bad"),
         V::Normalized { summary } => (format!("re-encoded into profile ({summary})"), "ok"),
+        V::Larger { summary } => (
+            format!("in profile, and larger than the size asked for: {summary}"),
+            "warn",
+        ),
+        V::Shrunk { summary } => (format!("re-encoded smaller ({summary})"), "ok"),
         V::Unreadable { why } => (format!("could not be probed: {why}"), "bad"),
         // Answered above, before a file was looked for. Spelled out rather than left to an
         // `unreachable!`, which would be a panic in a page renderer to save four words.
