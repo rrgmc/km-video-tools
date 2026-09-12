@@ -236,3 +236,7 @@ The rule the split exists to keep: **a binary crate here is a command line and i
 ## Licence
 
 MIT OR Apache-2.0, at your option.
+
+## Author
+
+Rangel Reale (realerangel@gmail.com)
