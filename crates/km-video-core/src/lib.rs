@@ -15,6 +15,7 @@
 //! * [`size`] — how much picture to ask for, and what a re-encode at that size aims at.
 //! * [`check`] — the three of those in the order that makes a verdict.
 //! * [`fetch`] — all of it, end to end, reported as events.
+//! * [`convert`] — the same shape, reached over a file that was already on disk.
 //! * [`child`] — the one thing every subprocess above has in common on Windows: no console
 //!   window of its own.
 //!
@@ -40,6 +41,7 @@
 pub mod args;
 pub mod check;
 pub mod child;
+pub mod convert;
 pub mod fetch;
 pub mod list;
 pub mod probe;

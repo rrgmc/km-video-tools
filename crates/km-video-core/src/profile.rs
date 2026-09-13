@@ -228,7 +228,7 @@ const H264_ENCODERS: [&str; 2] = ["libx264", "libopenh264"];
 /// Whatever is on `PATH`. Not configurable and not bundled: the packaging machine is somebody's
 /// desktop and already has one, and shelling out to the user's own ffmpeg is also what keeps this
 /// project's own linking story unchanged — nothing new is linked or distributed.
-const FFMPEG: &str = "ffmpeg";
+pub const FFMPEG: &str = "ffmpeg";
 
 /// What the local ffmpeg can do, looked up once.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -346,6 +346,35 @@ pub fn encode_args(encode: &Encode, info: &VideoInfo, encoders: &Encoders) -> Ve
     args
 }
 
+/// The whole argv ffmpeg is run with, the input and the output included.
+///
+/// Separate from [`encode_args`] because the two answer different questions: that one chooses the
+/// encode, this one is the command that ran. A front end showing what it did — `--show-command`, the
+/// page's log — reads it from here, so what is shown and what is spawned cannot drift apart.
+#[must_use]
+pub fn transcode_argv(
+    source: &Path,
+    destination: &Path,
+    encode: &Encode,
+    info: &VideoInfo,
+    encoders: &Encoders,
+) -> Vec<std::ffi::OsString> {
+    let mut argv: Vec<std::ffi::OsString> =
+        ["-hide_banner", "-nostdin", "-loglevel", "error", "-y"]
+            .iter()
+            .map(Into::into)
+            .collect();
+    argv.push("-i".into());
+    argv.push(source.into());
+    argv.extend(
+        encode_args(encode, info, encoders)
+            .into_iter()
+            .map(Into::into),
+    );
+    argv.push(destination.into());
+    argv
+}
+
 /// Re-encodes `source` into `destination`, aiming at `encode`.
 ///
 /// `info` is the source's probe, which is what decides whether scaling and frame-rate conversion are
@@ -364,10 +393,7 @@ pub fn transcode(
 ) -> Result<()> {
     let mut command = Command::new(FFMPEG);
     without_a_console_window(&mut command);
-    command.args(["-hide_banner", "-nostdin", "-loglevel", "error", "-y"]);
-    command.arg("-i").arg(source);
-    command.args(encode_args(encode, info, encoders));
-    command.arg(destination);
+    command.args(transcode_argv(source, destination, encode, info, encoders));
 
     command.stdin(Stdio::null());
     command.stdout(Stdio::piped());
