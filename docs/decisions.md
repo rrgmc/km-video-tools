@@ -713,6 +713,11 @@ what is short enough to check at a glance, and nothing that has to be regenerate
 buys a history that travels with the checkout, and the entry is kept short so that the two cannot
 diverge far.
 
+**The layout is Keep a Changelog, and it reads unlike anything else here.** Sections named `Added`,
+`Changed` and `Fixed` over bullets are a convention a reader meets already knowing how to skim it,
+and one a tool can parse. In the file somebody opens to compare two versions, that is worth more than
+a voice shared with the documents around it.
+
 **`tools/dev/check-prose.sh` skips it**, because `used to` and `no longer` are what an entry is made
 of rather than a lapse into narration. It is the only path exempt for what it says; the other two are
 exempt for what they are.
