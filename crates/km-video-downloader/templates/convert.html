@@ -1,0 +1,96 @@
+{% extends "layout.html" %}
+
+{% block content %}
+
+{# ---- 1. Where the files go ------------------------------------------------------------------ #}
+{# The same folder the Fetch page writes into, and the same form to set it. A person keeps one
+   folder of songs, and two settings for it would only ever be a way to get them out of step. #}
+<section class="panel">
+  <h2>Output</h2>
+
+  {% if out.is_empty() %}
+  <p class="note">Nothing set yet. Type a path below, or browse for one.</p>
+  {% else %}
+  <p class="chosen">
+    <code>{{ out }}</code>
+    {% if out_exists %}
+      {% match out_videos %}
+      {% when Some with (count) %}<span class="tag">{{ count }} video files</span>
+      {% when None %}
+      {% endmatch %}
+    {% else %}
+    <span class="tag warn">will be created</span>
+    {% endif %}
+  </p>
+  {% endif %}
+
+  <form class="by-path" hx-post="/out" hx-target="body" hx-swap="outerHTML">
+    <input type="text" name="path" value="{{ out }}" size="60" placeholder="a folder for the videos"
+           aria-label="the folder converted videos go into">
+    <button type="submit">Use this folder</button>
+  </form>
+
+  <div id="listing">
+    <button class="link" hx-get="/browse" hx-target="#listing" hx-swap="innerHTML">
+      Browse this computer&hellip;
+    </button>
+  </div>
+</section>
+
+{# ---- 2 and 3. What to convert, and how -------------------------------------------------------- #}
+<form class="panel fetch" hx-post="/convert" hx-target="#job" hx-swap="outerHTML"
+      method="post" action="/convert">
+  <h2>Source</h2>
+
+  {# Typed or picked, never uploaded. A file input hands a page the file's contents and not its
+     location, and these files are gigabytes — so the path is what travels, and the picker below
+     lists this computer the way the folder picker already does. See src/browse.rs. #}
+  <label class="field">
+    <span>Videos to convert, one path per line
+      <small>A video file, or a folder to take every video in it. What you name is read and never
+        written.</small></span>
+    <textarea name="sources" id="sources" rows="6" spellcheck="false"
+              placeholder="D:\rips\Band - A Song.mkv&#10;D:\rips"></textarea>
+  </label>
+
+  <div id="picker">
+    <button type="button" class="link" hx-get="/browse?files=1" hx-target="#picker"
+            hx-swap="innerHTML">
+      Browse this computer&hellip;
+    </button>
+  </div>
+
+  <h3>How</h3>
+  <div class="options">
+    {# The same three sizes the Fetch page offers, and the same remembered choice: how much picture
+       somebody wants is one preference, not one per page.
+
+       The sentence about the sound is true here for one of its two reasons — a re-encode copies an
+       AAC stream through rather than rebuilding it. Nothing is being asked of a site. #}
+    <div class="field wide">
+      <span>Video size</span>
+      {% for choice in sizes %}
+      <label class="check">
+        <input type="radio" name="video" value="{{ choice.word }}"
+               {% if video == choice.word %}checked{% endif %}>
+        <span>{{ choice.label }}</span>
+      </label>
+      {% endfor %}
+      <small>AAC sound is copied through untouched whichever you choose.</small>
+    </div>
+
+    <label class="check">
+      <input type="checkbox" name="dry_run">
+      <span>Dry run
+        <small>Report what would be converted, and convert nothing.</small></span>
+    </label>
+  </div>
+
+  <p class="go"><button type="submit" class="primary">Convert</button></p>
+</form>
+
+{# ---- 4. What is happening, and what came out -------------------------------------------------- #}
+{% include "_job.html" %}
+{% include "_results.html" %}
+
+{% endblock %}

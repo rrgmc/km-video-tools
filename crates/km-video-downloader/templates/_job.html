@@ -25,8 +25,8 @@
       {% if it.stopping %}<span class="note">&middot; stopping after this video</span>{% endif %}
     </p>
     {% if !it.stopping %}
-    <form hx-post="/fetch/stop" hx-target="#job" hx-swap="outerHTML"
-          method="post" action="/fetch/stop">
+    <form hx-post="/stop" hx-target="#job" hx-swap="outerHTML"
+          method="post" action="/stop">
       <button type="submit" class="quiet">Stop</button>
     </form>
     {% endif %}
@@ -44,11 +44,12 @@
     <div hx-get="/results" hx-trigger="load" hx-target="#results" hx-swap="outerHTML"></div>
   {% endif %}
 
-  {# yt-dlp's own words. In a terminal these are what somebody reads when a download fails, and
-     there is no terminal here — so they are kept, newest last, and folded away until wanted. #}
+  {# What the program that did the work said for itself. In a terminal these are what somebody
+     reads when a download fails, and there is no terminal here — so they are kept, newest last, and
+     folded away until wanted. A conversion puts the ffmpeg command for each file here instead. #}
   {% if !it.log.is_empty() %}
   <details class="log" {% if it.log_matters() %}open{% endif %}>
-    <summary>yt-dlp output</summary>
+    <summary>{% if converting %}What it ran{% else %}yt-dlp output{% endif %}</summary>
     <pre>{% for line in it.log %}{{ line }}
 {% endfor %}</pre>
   </details>

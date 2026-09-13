@@ -8,12 +8,12 @@
    is what makes `|safe` correct inside a single-quoted attribute. #}
 <div class="browser">
   <p class="crumbs">
-    <button class="link" hx-get="/browse?at=" hx-target="#listing" hx-swap="innerHTML"
+    <button type="button" class="link" hx-get="/browse?at={% if listing.picking %}&files=1{% endif %}" hx-target="closest .browser" hx-swap="outerHTML"
             title="every drive on this computer">&#x23F6;</button>
     {% match listing.up %}
     {% when Some with (up) %}
-    <button class="link" hx-get="/browse?at={{ up|urlencode }}"
-            hx-target="#listing" hx-swap="innerHTML">..</button>
+    <button type="button" class="link" hx-get="/browse?at={{ up|urlencode }}{% if listing.picking %}&files=1{% endif %}"
+            hx-target="closest .browser" hx-swap="outerHTML">..</button>
     {% when None %}
     {% endmatch %}
     <code>{{ listing.shown }}</code>
@@ -21,8 +21,14 @@
 
   {% if !listing.roots %}
   <p class="here">
-    <button class="primary" hx-post="/out" hx-vals='{"path": {{ listing.at|json|safe }}}'
+    {% if listing.picking %}
+    {# Added to the box rather than posted, because a conversion takes several paths and somebody
+       is usually picking the second one. `ui.js` puts it in the field the button names. #}
+    <button type="button" class="primary" data-add="{{ listing.at }}">Add this whole folder</button>
+    {% else %}
+    <button type="button" class="primary" hx-post="/out" hx-vals='{"path": {{ listing.at|json|safe }}}'
             hx-target="body" hx-swap="outerHTML">Use this folder</button>
+    {% endif %}
   </p>
   {% endif %}
 
@@ -37,14 +43,26 @@
   <ul class="folders">
   {% for folder in listing.folders %}
     <li>
-      <button class="link" hx-get="/browse?at={{ folder.path|urlencode }}"
-              hx-target="#listing" hx-swap="innerHTML">{{ folder.name }}</button>
+      <button type="button" class="link" hx-get="/browse?at={{ folder.path|urlencode }}{% if listing.picking %}&files=1{% endif %}"
+              hx-target="closest .browser" hx-swap="outerHTML">{{ folder.name }}</button>
     </li>
   {% endfor %}
   </ul>
   {% endif %}
 
+  {% if listing.picking && !listing.roots %}
+    {% if listing.files.is_empty() %}
+    <p class="note">No videos in here.</p>
+    {% else %}
+    <ul class="files">
+    {% for file in listing.files %}
+      <li><button type="button" class="link" data-add="{{ file.path }}">{{ file.name }}</button></li>
+    {% endfor %}
+    </ul>
+    {% endif %}
+  {% endif %}
+
   {# Handled by ui.js rather than by a route, because closing the browser puts the page back the way
      it loaded and the server has nothing to say about that. #}
-  <p><button class="link quiet" data-close-browser>Close</button></p>
+  <p><button type="button" class="link quiet" data-close-browser>Close</button></p>
 </div>

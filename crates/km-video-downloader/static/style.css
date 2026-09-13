@@ -86,6 +86,28 @@ code {
   font-size: 0.9rem;
 }
 
+/* Pushed to the far end of the bar, so the two pages read as a choice rather than as a third
+   heading beside the title. */
+.pages {
+  margin-left: auto;
+  display: flex;
+  gap: 0.4rem;
+}
+
+.pages a {
+  padding: 0.3rem 0.7rem;
+  border: 1px solid var(--edge);
+  border-radius: 4px;
+  text-decoration: none;
+  color: var(--dim);
+}
+
+.pages a[aria-current] {
+  color: var(--accent-ink);
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
 /* -- the page ------------------------------------------------------------------------------- */
 
 main {
@@ -321,7 +343,8 @@ button.link:hover {
   margin: 0 0 0.7rem;
 }
 
-.folders {
+.folders,
+.files {
   list-style: none;
   margin: 0 0 0.6rem;
   padding: 0;
@@ -330,14 +353,23 @@ button.link:hover {
   border-top: 1px solid var(--edge);
 }
 
-.folders li {
+.folders li,
+.files li {
   border-bottom: 1px solid var(--edge);
 }
 
-.folders button {
+.folders button,
+.files button {
   display: block;
   width: 100%;
   padding: 0.35rem 0.2rem;
+}
+
+/* Told apart from the folders above them, which are the way further in rather than something to
+   pick. */
+.files button {
+  text-align: left;
+  color: var(--text);
 }
 
 /* -- the job ---------------------------------------------------------------------------------- */

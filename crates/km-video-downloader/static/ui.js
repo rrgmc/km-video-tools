@@ -11,6 +11,10 @@
 
   const tray = () => document.getElementById("toasts");
 
+  // Written once rather than inline, so nothing here carries an escape a build step
+  // could mangle.
+  const NEWLINE = String.fromCharCode(10);
+
   /** Shows one message until it is dismissed or times out. */
   function toast(text) {
     const host = tray();
@@ -51,6 +55,14 @@
     toast("This program stopped answering. Is it still running?");
   });
 
+  // The two places a listing is drawn into, and what each one reopens with. The Convert page's
+  // picker asks for the video files as well, so a browser closed and reopened there comes back
+  // showing them.
+  const PICKERS = {
+    listing: "/browse",
+    picker: "/browse?files=1",
+  };
+
   // Closing the folder browser puts the page back the way it loaded, which the server has nothing
   // to say about — so it is done here rather than through a route that would only ever return the
   // same fixed button. Delegated from `document` for the reason above.
@@ -58,18 +70,39 @@
     const button = event.target.closest("[data-close-browser]");
     if (!button) return;
     event.preventDefault();
-    const host = document.getElementById("listing");
+    const host = button.closest("#listing, #picker");
     if (!host) return;
     host.replaceChildren();
     const open = document.createElement("button");
     open.className = "link";
+    open.type = "button";
     open.textContent = "Browse this computer…";
-    open.setAttribute("hx-get", "/browse");
-    open.setAttribute("hx-target", "#listing");
+    open.setAttribute("hx-get", PICKERS[host.id]);
+    open.setAttribute("hx-target", "#" + host.id);
     open.setAttribute("hx-swap", "innerHTML");
     host.appendChild(open);
     // Newly created nodes are not wired up until htmx is told about them.
     window.htmx.process(host);
+  });
+
+  // Picking a video adds its path to the box rather than posting it, because a conversion takes
+  // several paths and somebody is usually picking the second one. The browser stays open.
+  document.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-add]");
+    if (!button) return;
+    event.preventDefault();
+    const box = document.getElementById("sources");
+    if (!box) return;
+
+    const path = button.getAttribute("data-add");
+    const lines = box.value.split(NEWLINE).map((line) => line.trim()).filter(Boolean);
+    if (lines.includes(path)) {
+      toast("That one is in the list already.");
+      return;
+    }
+    lines.push(path);
+    box.value = lines.join(NEWLINE) + NEWLINE;
+    box.scrollTop = box.scrollHeight;
   });
 
   // Exposed so a fragment can raise one without a round trip of its own.
