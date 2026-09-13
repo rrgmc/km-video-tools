@@ -24,7 +24,7 @@ use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::Instant;
 
-use km_video_core::fetch;
+use km_video_core::{convert, fetch};
 
 /// How many lines of yt-dlp's own output to keep.
 ///
@@ -161,6 +161,33 @@ impl Job {
                     .lock()
                     .unwrap_or_else(|poisoned| poisoned.into_inner())
                     .push(arrival(record, verdict));
+            }
+        }
+    }
+
+    /// The same job for a conversion: the same bar and the same list, from the other narration.
+    pub fn absorb_convert(&self, event: &convert::Event) {
+        use convert::Event as E;
+        match event {
+            E::Found { count } => {
+                self.total.store(*count as u64, Ordering::Relaxed);
+                self.phase("reading what you named");
+            }
+
+            E::Command(line) => self.say(line),
+
+            E::Converting { source, percent } => {
+                self.percent.store(u64::from(*percent), Ordering::Relaxed);
+                self.phase(&format!("converting {}", name_of(source)));
+            }
+
+            E::Done { source, verdict } => {
+                self.done.fetch_add(1, Ordering::Relaxed);
+                self.percent.store(0, Ordering::Relaxed);
+                self.results
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner())
+                    .push(converted(source, verdict));
             }
         }
     }
@@ -341,6 +368,45 @@ fn arrival(record: &km_video_core::run::Record, verdict: &fetch::Verdict) -> Arr
     }
 }
 
+/// One converted file, as the page shows it.
+///
+/// Named by what went in rather than by what came out, because that is the file somebody pointed
+/// at — and for the rows where nothing came out, it is the only name there is.
+fn converted(source: &std::path::Path, verdict: &convert::Verdict) -> Arrival {
+    use convert::Verdict as V;
+
+    let (verdict, tone) = match verdict {
+        V::Copied { destination } => (
+            format!("already in profile — copied to {}", name_of(destination)),
+            "ok",
+        ),
+        V::Converted {
+            destination,
+            summary,
+        } => (
+            format!("converted to {} ({summary})", name_of(destination)),
+            "ok",
+        ),
+        V::WouldCopy { .. } => (
+            "already in profile — would be copied as it is".to_owned(),
+            "ok",
+        ),
+        V::WouldConvert { summary, .. } => (format!("would be converted: {summary}"), "ok"),
+        V::Exists { destination } => (
+            format!("not converted — {} is there already", destination.display()),
+            "warn",
+        ),
+        V::Unreadable { why } => (format!("could not be read: {why}"), "bad"),
+        V::Failed { why } => (format!("failed: {why}"), "bad"),
+    };
+
+    Arrival {
+        name: name_of(source),
+        verdict,
+        tone,
+    }
+}
+
 /// A path's last component, or the whole thing where it has none.
 fn name_of(path: &std::path::Path) -> String {
     path.file_name().map_or_else(
@@ -469,6 +535,86 @@ mod tests {
         assert_eq!(log.len(), LOG_LINES);
         assert_eq!(log[0], "line 50", "the oldest went");
         assert_eq!(log[LOG_LINES - 1], format!("line {}", LOG_LINES + 49));
+    }
+
+    /// The other narration, folded into the same bar and the same list.
+    #[test]
+    fn a_conversion_fills_the_same_bar_and_the_same_list() {
+        let job = Job::new("starting");
+        assert!(job.view().indeterminate(), "nothing known yet");
+
+        job.absorb_convert(&convert::Event::Found { count: 3 });
+        assert_eq!(job.view().counted().as_deref(), Some("0 of 3"));
+
+        job.absorb_convert(&convert::Event::Converting {
+            source: std::path::PathBuf::from("rips/A Song.mkv"),
+            percent: 40,
+        });
+        let view = job.view();
+        assert_eq!(view.percent, 40);
+        assert_eq!(view.phase, "converting A Song.mkv");
+
+        for (source, verdict) in [
+            (
+                "rips/A Song.mkv",
+                convert::Verdict::Converted {
+                    destination: std::path::PathBuf::from("songs/A Song.mp4"),
+                    summary: "VP9 video, wanted H264".to_owned(),
+                },
+            ),
+            (
+                "rips/Fine.mp4",
+                convert::Verdict::Copied {
+                    destination: std::path::PathBuf::from("songs/Fine.mp4"),
+                },
+            ),
+            (
+                "rips/Taken.mkv",
+                convert::Verdict::Exists {
+                    destination: std::path::PathBuf::from("songs/Taken.mp4"),
+                },
+            ),
+        ] {
+            job.absorb_convert(&convert::Event::Done {
+                source: std::path::PathBuf::from(source),
+                verdict,
+            });
+        }
+
+        let results = job.results();
+        assert_eq!(results.len(), 3);
+        assert_eq!(
+            results[0].name, "A Song.mkv",
+            "named by what went in, which is the file somebody pointed at"
+        );
+        assert!(
+            results[0].verdict.contains("A Song.mp4"),
+            "and where it went"
+        );
+        assert_eq!(results[0].tone, "ok");
+        assert_eq!(results[1].tone, "ok");
+        assert_eq!(
+            results[2].tone, "warn",
+            "a name already taken is something to look at, not a fault"
+        );
+        assert_eq!(job.view().counted().as_deref(), Some("3 of 3"));
+    }
+
+    /// A file nothing could be made of is a row and a red one, so a list with a gap in it cannot
+    /// read as a clean run that was one video shorter.
+    #[test]
+    fn a_file_that_produced_nothing_still_gets_a_row() {
+        let job = Job::new("starting");
+        job.absorb_convert(&convert::Event::Done {
+            source: std::path::PathBuf::from("rips/broken.mkv"),
+            verdict: convert::Verdict::Unreadable {
+                why: "no audio stream".to_owned(),
+            },
+        });
+        let results = job.results();
+        assert_eq!(results[0].name, "broken.mkv");
+        assert!(results[0].verdict.contains("no audio stream"));
+        assert_eq!(results[0].tone, "bad");
     }
 
     #[test]

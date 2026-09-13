@@ -35,7 +35,7 @@ use std::process::ExitCode;
 
 use anyhow::{Result, bail};
 use clap::Parser;
-use km_video_core::{args, fetch, list, run, size};
+use km_video_core::{args, convert, fetch, list, run, size};
 
 /// Fetch video songs with yt-dlp, in the shape packaging wants them.
 #[derive(Debug, Parser)]
@@ -44,6 +44,23 @@ struct Cli {
     /// Video or playlist URLs to fetch.
     #[arg(value_name = "URL")]
     targets: Vec<String>,
+
+    /// Convert a video already on disk into the shape packaging wants.
+    ///
+    /// Give a video file, or a folder to take every video in it. The result goes into --out under
+    /// the same name with a .mp4 extension, and the file you named is left where it is. A video
+    /// already in the right shape is copied rather than re-encoded.
+    ///
+    /// Repeat this to name more than one. --video and --dry-run apply; the options that belong to
+    /// a download do not.
+    // The refusal is clap's rather than a `bail!` here, so an argv that cannot mean anything is
+    // turned down before the program starts, worded by the parser and validated by `debug_assert`
+    // in the test below.
+    #[arg(long, value_name = "PATH", conflicts_with_all = [
+        "targets", "from_file", "playlist", "limit", "no_archive", "cookies_from_browser",
+        "subs", "format", "sort", "normalize", "yt_dlp",
+    ])]
+    convert: Vec<PathBuf>,
 
     /// Read URLs from a file, one per line.
     ///
@@ -114,7 +131,7 @@ struct Cli {
     #[arg(long)]
     normalize: bool,
 
-    /// Fail if any file cannot be played as it is.
+    /// Fail if any file cannot be played as it is, or with --convert did not come through.
     #[arg(long)]
     strict: bool,
 
@@ -152,6 +169,10 @@ fn main() -> ExitCode {
 /// Runs the fetch, returning whether everything is acceptable.
 fn run() -> Result<bool> {
     let cli = Cli::parse();
+
+    if !cli.convert.is_empty() {
+        return converting(&cli);
+    }
 
     if !cli.targets.is_empty() && cli.from_file.is_some() {
         bail!("give URLs or --from-file, not both");
@@ -226,6 +247,78 @@ fn run() -> Result<bool> {
         eprintln!("\nat least one file cannot be played as it is; --normalize re-encodes them");
     }
     Ok(outcome.all_playable || !cli.strict)
+}
+
+/// Runs the conversion, returning whether every file came through.
+///
+/// The other half of [`run`], reached by `--convert`. What the two share is everything below
+/// `km-video-core`: one profile, one set of sizes, one re-encode.
+fn converting(cli: &Cli) -> Result<bool> {
+    let request = convert::Request {
+        sources: cli.convert.clone(),
+        out: cli.out.clone(),
+        video: cli.video,
+        dry_run: cli.dry_run,
+    };
+
+    let mut reporter = Reporter {
+        show_command: cli.show_command || cli.dry_run,
+        dry_run: cli.dry_run,
+        normalizing: u8::MAX,
+    };
+    // Nothing stops of its own accord here: ffmpeg is a child of this process, so Ctrl-C reaches it
+    // directly, exactly as it reaches yt-dlp during a fetch.
+    let outcome = convert::convert(&request, |event| {
+        reporter.converting(&event);
+        convert::Flow::Go
+    })?;
+
+    println!("\n{}", converted(&outcome, cli.dry_run));
+    if outcome.refused > 0 && cli.strict {
+        eprintln!("\nat least one file produced nothing");
+    }
+    Ok(outcome.refused == 0 || !cli.strict)
+}
+
+/// How a finished conversion is described in one line.
+fn converted(outcome: &convert::Outcome, dry_run: bool) -> String {
+    if outcome.converted == 0 && outcome.copied == 0 && outcome.refused == 0 {
+        return "no videos to convert".to_owned();
+    }
+
+    let mut parts = Vec::new();
+    if outcome.converted > 0 {
+        let verb = if dry_run {
+            "would convert"
+        } else {
+            "converted"
+        };
+        parts.push(format!(
+            "{verb} {}",
+            plural(outcome.converted, "video", "videos")
+        ));
+    }
+    if outcome.copied > 0 {
+        let verb = if dry_run { "would copy" } else { "copied" };
+        parts.push(format!(
+            "{verb} {} already in profile",
+            plural(outcome.copied, "video", "videos")
+        ));
+    }
+    if outcome.refused > 0 {
+        parts.push(format!(
+            "{} produced nothing",
+            plural(outcome.refused, "video", "videos")
+        ));
+    }
+
+    let said = parts.join(", ");
+    // **Said first, because it changes what every other number means.** A run somebody stopped did
+    // not convert nothing; it converted what it had reached.
+    if outcome.stopped {
+        return format!("stopped — {said} first");
+    }
+    said
 }
 
 /// Turns what happened into what is printed, and holds the little state that needs.
@@ -326,6 +419,78 @@ impl Reporter {
                 }
             }
         }
+    }
+
+    /// The same job for a conversion: one narration, rendered as lines.
+    fn converting(&mut self, event: &convert::Event) {
+        use convert::Event as E;
+        match event {
+            E::Found { count } => {
+                let verb = if self.dry_run {
+                    "would look at"
+                } else {
+                    "converting"
+                };
+                println!("{verb} {}:", plural(*count, "video", "videos"));
+            }
+
+            E::Command(line) => {
+                if self.show_command {
+                    eprintln!("  {line}");
+                }
+            }
+
+            // Drawn in place and erased when the file is done, so a re-encode that takes minutes
+            // says something without leaving a hundred lines behind. Only where there is a terminal
+            // to draw on: redirected to a file this would be a hundred lines.
+            E::Converting { percent, .. } => {
+                use std::io::IsTerminal;
+                if std::io::stderr().is_terminal()
+                    && *percent != self.normalizing
+                    && percent % 10 == 0
+                {
+                    self.normalizing = *percent;
+                    eprint!("      converting {percent}%\r");
+                }
+            }
+
+            E::Done { source, verdict } => {
+                if self.normalizing != u8::MAX {
+                    eprint!("\r{:width$}\r", "", width = 28);
+                    self.normalizing = u8::MAX;
+                }
+                println!("  {}\n      {}", name_of(source), became(verdict));
+            }
+        }
+    }
+}
+
+/// A path's last component, or the whole thing where it has none.
+fn name_of(path: &std::path::Path) -> String {
+    path.file_name().map_or_else(
+        || path.display().to_string(),
+        |name| name.to_string_lossy().into_owned(),
+    )
+}
+
+/// What became of one converted file, in one sentence.
+fn became(verdict: &convert::Verdict) -> String {
+    use convert::Verdict as V;
+    match verdict {
+        V::Copied { destination } => {
+            format!("already in profile — copied to {}", name_of(destination))
+        }
+        V::Converted {
+            destination,
+            summary,
+        } => format!("converted to {} ({summary})", name_of(destination)),
+        V::WouldCopy { .. } => "already in profile — would be copied as it is".to_owned(),
+        V::WouldConvert { summary, .. } => format!("would be converted: {summary}"),
+        V::Exists { destination } => {
+            format!("not converted — {} is there already", destination.display())
+        }
+        V::Unreadable { why } => format!("could not be read: {why}"),
+        V::Failed { why } => format!("failed: {why}"),
     }
 }
 
@@ -489,6 +654,84 @@ mod tests {
         assert_eq!(args::Plan::folders_own_list(&other), None);
 
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The other half of the command line, and the refusal that keeps the two apart: a run is a
+    /// fetch or a conversion, and an argv asking for both cannot mean anything.
+    #[test]
+    fn a_conversion_names_files_and_refuses_the_arguments_of_a_download() {
+        let cli = Cli::try_parse_from([
+            "km-video-fetch",
+            "--convert",
+            "rips/A Song.mkv",
+            "--convert",
+            "rips",
+            "--out",
+            "songs",
+            "--video",
+            "small",
+            "--dry-run",
+        ])
+        .expect("a conversion is a command line of its own");
+        assert_eq!(
+            cli.convert,
+            vec![PathBuf::from("rips/A Song.mkv"), PathBuf::from("rips")],
+            "repeated, and in the order they were named"
+        );
+        assert_eq!(cli.out, PathBuf::from("songs"));
+        assert_eq!(cli.video, Some(size::Video::Small));
+        assert!(cli.dry_run);
+
+        assert!(
+            Cli::try_parse_from([
+                "km-video-fetch",
+                "--convert",
+                "a.mkv",
+                "https://example.invalid/a"
+            ])
+            .is_err(),
+            "a URL is for yt-dlp and a file is not"
+        );
+        assert!(
+            Cli::try_parse_from(["km-video-fetch", "--convert", "a.mkv", "--playlist"]).is_err(),
+            "there is no playlist on a disk"
+        );
+        assert!(
+            Cli::try_parse_from(["km-video-fetch", "--convert", "a.mkv", "--normalize"]).is_err(),
+            "converting is what was asked for already"
+        );
+    }
+
+    /// The one line a conversion ends with, in each of the shapes it takes.
+    #[test]
+    fn a_conversion_is_described_in_one_line() {
+        let nothing = convert::Outcome::default();
+        assert_eq!(converted(&nothing, false), "no videos to convert");
+
+        let mixed = convert::Outcome {
+            converted: 2,
+            copied: 1,
+            refused: 3,
+            stopped: false,
+        };
+        assert_eq!(
+            converted(&mixed, false),
+            "converted 2 videos, copied 1 video already in profile, 3 videos produced nothing"
+        );
+        assert_eq!(
+            converted(&mixed, true),
+            "would convert 2 videos, would copy 1 video already in profile, 3 videos produced nothing"
+        );
+
+        let stopped = convert::Outcome {
+            converted: 1,
+            stopped: true,
+            ..convert::Outcome::default()
+        };
+        assert_eq!(
+            converted(&stopped, false),
+            "stopped — converted 1 video first"
+        );
     }
 
     #[test]

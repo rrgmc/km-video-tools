@@ -14,6 +14,12 @@
 <header class="bar">
   <h1>{{ app_name }}</h1>
   <p class="tagline">yt-dlp, in a karaoke-specific format</p>
+  {# Plain links rather than htmx swaps: these are two pages with two forms, and a full load is
+     what makes the address bar, the back button and a reload all mean what they look like. #}
+  <nav class="pages">
+    <a href="/"{% if page == "fetch" %} aria-current="page"{% endif %}>Fetch</a>
+    <a href="/convert"{% if page == "convert" %} aria-current="page"{% endif %}>Convert</a>
+  </nav>
 </header>
 
 <main>

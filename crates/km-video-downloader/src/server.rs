@@ -298,7 +298,12 @@ pub fn router(state: State) -> Router {
             "/fetch",
             post(crate::handlers::start).layer(axum::extract::DefaultBodyLimit::max(LIST_LIMIT)),
         )
-        .route("/fetch/stop", post(crate::handlers::stop))
+        // One path, both methods: a second `.route` for the same path is a panic at startup.
+        .route(
+            "/convert",
+            get(crate::views::convert).post(crate::handlers::start_convert),
+        )
+        .route("/stop", post(crate::handlers::stop))
         .route(
             "/static/htmx.min.js",
             get(|| async { embedded("application/javascript; charset=utf-8", HTMX_JS) }),
@@ -358,6 +363,12 @@ mod tests {
         assert_eq!(get_status("/progress").await, StatusCode::OK);
         assert_eq!(get_status("/results").await, StatusCode::OK);
         assert_eq!(get_status("/browse").await, StatusCode::OK);
+        assert_eq!(get_status("/convert").await, StatusCode::OK);
+        assert_eq!(
+            get_status("/browse?files=1").await,
+            StatusCode::OK,
+            "the same picker, asked for the videos as well"
+        );
     }
 
     /// The whole of `static/` is inside the executable, and a route that answers 404 for one of

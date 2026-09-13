@@ -12,7 +12,7 @@ use axum::extract::{Multipart, State as AxumState};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 
-use km_video_core::{args, fetch, list};
+use km_video_core::{args, convert, fetch, list};
 
 use crate::browse;
 use crate::server::{OPENED_MARK, State};
@@ -22,7 +22,11 @@ use crate::server::{OPENED_MARK, State};
 /// Answers with the whole page rather than a fragment, because changing the folder changes four
 /// things on it at once: whether the folder exists, how many videos are in it, whether it carries
 /// its own list of links, and what the browser is showing.
-pub async fn set_out(AxumState(state): AxumState<State>, body: String) -> Response {
+pub async fn set_out(
+    AxumState(state): AxumState<State>,
+    headers: axum::http::HeaderMap,
+    body: String,
+) -> Response {
     let fields = Fields::parse(&body);
     let Some(typed) = fields.one("path") else {
         return refused("No folder given.");
@@ -36,7 +40,30 @@ pub async fn set_out(AxumState(state): AxumState<State>, body: String) -> Respon
     settings.out = path.display().to_string();
     state.remember(settings);
 
+    // **The page it was pressed on**, because both pages carry this form and both swap the whole
+    // body with the answer. Answering with one of them always would put somebody who set a folder
+    // on the Convert page in front of the Fetch page, with the address bar still saying otherwise.
+    if asked_from_convert(&headers) {
+        return crate::views::render_convert_page(&state);
+    }
     crate::views::render_page(&state)
+}
+
+/// Whether the request came from the Convert page.
+///
+/// `HX-Current-URL` is the address of the page that made the request, which htmx sends on every
+/// one. A request without it is an ordinary form post from a page whose script did not load, and
+/// that form is on the Fetch page as often as not — so the absence is the default rather than a
+/// failure.
+pub(crate) fn asked_from_convert(headers: &axum::http::HeaderMap) -> bool {
+    headers
+        .get("HX-Current-URL")
+        .and_then(|value| value.to_str().ok())
+        .is_some_and(|url| {
+            url.split(['?', '#'])
+                .next()
+                .is_some_and(|path| path.ends_with("/convert"))
+        })
 }
 
 /// `POST /opened` — this program was opened again, handed over by the copy that could not start.
@@ -209,14 +236,84 @@ pub async fn start(AxumState(state): AxumState<State>, multipart: Multipart) -> 
         }
     });
 
-    crate::views::job_fragment(&job)
+    crate::views::job_fragment(&job, false)
 }
 
-/// `POST /fetch/stop` — ask the run to stop after the video it is on.
-pub async fn stop(AxumState(state): AxumState<State>) -> Response {
+/// `POST /convert` — convert videos already on disk.
+///
+/// **Not multipart**, unlike `/fetch`: there is no file to upload here. What a browser would hand
+/// over for a picked video is its contents, and these are gigabytes; the path is what travels, and
+/// the picker in `/browse` is what puts one in the box.
+pub async fn start_convert(AxumState(state): AxumState<State>, body: String) -> Response {
+    let fields = Fields::parse(&body);
+
+    let mut settings = state.settings();
+    let Some(out) = settings.out() else {
+        return refused("Set a folder for the converted videos first.");
+    };
+
+    let video: Option<km_video_core::size::Video> = fields
+        .one("video")
+        .and_then(|word| word.trim().parse().ok());
+    let dry_run = fields.one("dry_run").is_some();
+
+    // Remembered as it is used rather than through a Save button, which is the only arrangement
+    // where what runs and what comes back tomorrow cannot disagree. The size is the one setting the
+    // two pages share, because how much picture somebody wants is one preference.
+    settings.video = video.unwrap_or_default().word().to_owned();
+    state.remember(settings);
+
+    let sources: Vec<PathBuf> = fields
+        .one("sources")
+        .unwrap_or_default()
+        .lines()
+        .map(crate::browse::tidy)
+        .filter(|path| !path.as_os_str().is_empty())
+        .collect();
+    if sources.is_empty() {
+        return refused("Name a video file, or a folder with videos in it.");
+    }
+
+    let request = convert::Request {
+        sources,
+        out,
+        video,
+        dry_run,
+    };
+
+    let job = match state.start_job("starting") {
+        Ok(job) => job,
+        Err(said) => return (StatusCode::CONFLICT, said).into_response(),
+    };
+
+    // **`spawn_blocking`, not `spawn`.** A conversion waits on ffmpeg and reads a pipe, and running
+    // it on an async worker would stall every other request, including the poll that draws the bar.
+    let working = std::sync::Arc::clone(&job);
+    tokio::task::spawn_blocking(move || {
+        let outcome = convert::convert(&request, |event| {
+            working.absorb_convert(&event);
+            // **Where Stop actually takes effect.** The flag the button sets is read here, on the
+            // one closure that is already called at every point where stopping is possible.
+            if working.stopping() {
+                convert::Flow::Stop
+            } else {
+                convert::Flow::Go
+            }
+        });
+        match outcome {
+            Ok(outcome) => working.done_with(summarize_convert(&outcome, dry_run)),
+            Err(error) => working.failed_with(format!("{error:#}")),
+        }
+    });
+
+    crate::views::job_fragment(&job, true)
+}
+
+/// `POST /stop` — ask the run to stop after the file it is on.
+pub async fn stop(AxumState(state): AxumState<State>, headers: axum::http::HeaderMap) -> Response {
     if let Some(job) = state.job() {
         job.ask_to_stop();
-        return crate::views::job_fragment(&job);
+        return crate::views::job_fragment(&job, asked_from_convert(&headers));
     }
     refused("There is nothing running.")
 }
@@ -255,6 +352,47 @@ fn summarize(outcome: &fetch::Outcome, dry_run: bool) -> String {
         (_, false) if outcome.all_playable => format!("fetched {count}"),
         _ => format!("fetched {count}, and at least one cannot be played as it is"),
     }
+}
+
+/// How a finished conversion is described in one line.
+fn summarize_convert(outcome: &convert::Outcome, dry_run: bool) -> String {
+    if outcome.converted == 0 && outcome.copied == 0 && outcome.refused == 0 {
+        return "no videos to convert".to_owned();
+    }
+
+    let mut parts = Vec::new();
+    if outcome.converted > 0 {
+        let verb = if dry_run {
+            "would convert"
+        } else {
+            "converted"
+        };
+        parts.push(format!(
+            "{verb} {}",
+            plural(outcome.converted, "video", "videos")
+        ));
+    }
+    if outcome.copied > 0 {
+        let verb = if dry_run { "would copy" } else { "copied" };
+        parts.push(format!(
+            "{verb} {} already in profile",
+            plural(outcome.copied, "video", "videos")
+        ));
+    }
+    if outcome.refused > 0 {
+        parts.push(format!(
+            "{} produced nothing",
+            plural(outcome.refused, "video", "videos")
+        ));
+    }
+
+    let said = parts.join(", ");
+    // **Said first, because it changes what every other number means.** A run somebody stopped did
+    // not convert nothing; it converted what it had reached.
+    if outcome.stopped {
+        return format!("stopped — {said} first");
+    }
+    said
 }
 
 /// `1 video` / `2 videos`.

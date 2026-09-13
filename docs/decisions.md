@@ -72,6 +72,46 @@ which costs the profile nothing: it says nothing about channels, because the app
 whatever it meets to interleaved stereo `f32`. Drift from the karaoke app's copy is bounded to the
 numbers its decoder can draw, and the audio codec is the one thing the profile says about sound.
 
+## A local file is converted into the output folder, and the original is left alone
+
+`km-video-core/src/convert.rs` runs the second half of a fetch over a file nobody downloaded:
+`--convert PATH` on the command line, the Convert page in the window.
+
+**The source is read and never written.** `check::normalize` replaces the file it re-encoded, which
+is right for something yt-dlp wrote a second ago and wrong for a file somebody owns. The result is a
+new file in the output folder under the source's own name, and what was named is still where it was.
+`profile::transcode` is the primitive that writes elsewhere, and the in-place `check::normalize`
+stays as it is for downloads.
+
+**A file already in the shape packaging wants is copied rather than re-encoded.** Re-encoding it
+spends minutes and a generation of picture to produce a file the packager treats exactly as it would
+have treated the one that went in. The output folder is the whole result of a run, so a file that
+needs nothing still lands in it.
+
+**A name already taken in the output folder is a refusal.** That folder is somebody's library. It is
+also what stops a `.mp4` sitting in the output folder being ffmpeg's input and its output at once,
+which is the one ordering that loses a file.
+
+**A size asked for is a reason to re-encode here**, the opposite of the rule in
+`A named size shrinks the download, and the sound is never re-encoded to save room`. There a size is
+a request to a site and a file that arrives larger is left alone rather than charged an hour of CPU
+nobody asked for. Here the re-encode *is* what was asked for.
+
+**A named folder is not descended into.** What somebody points at is what they meant, and a tree walk
+turns one wrong path into hours of encoding. Which files a folder gives up is
+`convert::VIDEO_EXTENSIONS`, matched by name rather than by opening each one: a folder of songs also
+holds the archive, a list of links and cover art, and finding out by running ffprobe over each is a
+subprocess apiece. A file named on its own is taken whatever it is called.
+
+**Stopping takes effect between files.** ffmpeg is handed a whole file and offers no way to be asked
+for half of one, which is the limit `Stopping is asking` in `km-video-downloader/src/job.rs` already
+describes for a fetch.
+
+**An option rather than a program of its own.** It shares the profile, the sizes, the re-encode and
+the window with the fetch, and differs only in where the file came from. `--convert` is refused
+beside the arguments that belong to a download, by clap rather than by hand, so an argv that cannot
+mean anything is turned down before the program starts.
+
 ## A file is read with `ffprobe`, not with `ffmpeg-next`
 
 A second implementation of what the karaoke app's `km_video::probe` does, deliberately.
@@ -526,6 +566,27 @@ interaction in a program whose interface is otherwise a page.
 
 The picked *file* of links is the other half of the same fact, read the other way round: what the
 browser sends is the file's bytes, and the bytes are all that is wanted.
+
+## The window has two pages over one job
+
+The bar chooses between Fetch and Convert. They are plain links and a whole page load, which is what
+makes the address bar, the back button and a reload each mean what they look like.
+
+**One job slot between them**, which is why Stop is `POST /stop` and belongs to neither page. A
+second run is refused while one is going, exactly as two fetches always were: there is one progress
+bar and one list of results, and a machine re-encoding video is busy.
+
+**The shared fragments are told which half is drawing them**, through htmx's own `HX-Current-URL`.
+Three things turn on it: setting the output folder redraws the page it was set on, the note under the
+results explains the verdicts that half produces, and the log is labelled for the program whose words
+are in it. A request without the header is the Fetch page, which is where an ordinary form post from
+a page whose script did not load comes from.
+
+**The folder picker lists files when the Convert page asks it to.** The reason a picker exists at all
+is `The folder picker is a server-side listing`, and it applies twice over here: a browser hands a
+page a picked file's contents rather than its location, and a video is gigabytes. So the path is what
+travels, and a click adds it to the box rather than posting it — a conversion takes several paths,
+and somebody is usually picking the second one.
 
 ## The Rust toolchain is pinned exactly
 

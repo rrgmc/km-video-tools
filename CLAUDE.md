@@ -84,6 +84,7 @@ progress bar.
 | `size` | how much picture to ask for, and what a re-encode at that size aims at |
 | `check` | three of those in the order that makes a verdict |
 | `fetch` | all of it, end to end, reported as events |
+| `convert` | the same shape, reached over a file that was already on disk |
 | `child` | the one thing every subprocess has in common on Windows: no console window of its own |
 
 **What this owns is the argv, and only the argv.** It shells out and reads back what happened; it

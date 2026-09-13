@@ -36,16 +36,23 @@ pub struct Listing {
     /// The parent, where there is one to go up to.
     pub up: Option<String>,
     /// The folders inside it, sorted.
-    pub folders: Vec<Folder>,
+    pub folders: Vec<Entry>,
+    /// The video files inside it, sorted. Empty unless the listing was asked for them.
+    pub files: Vec<Entry>,
+    /// Whether this listing is picking videos to convert rather than a folder to write into.
+    ///
+    /// What the rows do differs between the two, and the listing is the only thing that knows which
+    /// page asked for it.
+    pub picking: bool,
     /// Why there is nothing to show, where that is the reason.
     pub error: Option<String>,
     /// Whether this is the drive list rather than a directory.
     pub roots: bool,
 }
 
-/// One row of a listing.
+/// One row of a listing, a folder or a file alike.
 #[derive(Debug, Clone)]
-pub struct Folder {
+pub struct Entry {
     /// Its own name.
     pub name: String,
     /// The whole path, which is what a click sends back.
@@ -78,6 +85,8 @@ pub fn list(at: &Path) -> Listing {
         shown: at.display().to_string(),
         up: parent_of(at),
         folders: Vec::new(),
+        files: Vec::new(),
+        picking: false,
         error: None,
         roots: false,
     };
@@ -101,7 +110,7 @@ pub fn list(at: &Path) -> Listing {
         if name.starts_with('.') {
             continue;
         }
-        listing.folders.push(Folder {
+        listing.folders.push(Entry {
             name,
             path: entry.path().display().to_string(),
         });
@@ -110,6 +119,44 @@ pub fn list(at: &Path) -> Listing {
     listing
         .folders
         .sort_by_key(|folder| folder.name.to_lowercase());
+    listing
+}
+
+/// The same listing, with the video files in the folder and the rows that pick them.
+///
+/// **A second function rather than a flag on [`list`]**, so the folder picker the fetch page has
+/// always used cannot change behaviour by accident. Which files count is
+/// [`km_video_core::convert::looks_like_video`]'s to say, and it is the same answer a conversion
+/// itself reaches when it is handed the folder.
+#[must_use]
+pub fn list_for_picking(at: &Path) -> Listing {
+    let mut listing = list(at);
+    listing.picking = true;
+    if listing.roots {
+        return listing;
+    }
+
+    // A folder that would not list its subfolders will not list its files either, and the message
+    // saying so is already on the listing.
+    let Ok(entries) = std::fs::read_dir(at) else {
+        return listing;
+    };
+    for entry in entries.flatten() {
+        // `file_type` rather than `metadata`, for [`list`]'s reason: a symlink into a disconnected
+        // share must not stall the listing for its whole timeout.
+        if !entry.file_type().is_ok_and(|kind| kind.is_file()) {
+            continue;
+        }
+        let path = entry.path();
+        if !km_video_core::convert::looks_like_video(&path) {
+            continue;
+        }
+        listing.files.push(Entry {
+            name: entry.file_name().to_string_lossy().into_owned(),
+            path: path.display().to_string(),
+        });
+    }
+    listing.files.sort_by_key(|file| file.name.to_lowercase());
     listing
 }
 
@@ -124,14 +171,14 @@ fn roots() -> Listing {
         for letter in 'A'..='Z' {
             let root = PathBuf::from(format!("{letter}:\\"));
             if std::fs::metadata(&root).is_ok() {
-                folders.push(Folder {
+                folders.push(Entry {
                     name: format!("{letter}:"),
                     path: root.display().to_string(),
                 });
             }
         }
     } else {
-        folders.push(Folder {
+        folders.push(Entry {
             name: "/".to_owned(),
             path: "/".to_owned(),
         });
@@ -146,6 +193,8 @@ fn roots() -> Listing {
         },
         up: None,
         folders,
+        files: Vec::new(),
+        picking: false,
         error: None,
         roots: true,
     }
@@ -198,6 +247,42 @@ mod tests {
             PathBuf::from("D:\\tunes\\karaoke"),
             "a Windows Explorer 'copy as path' brings its own quotes"
         );
+    }
+
+    /// The two listings, and the difference between them: the folder picker has never shown a
+    /// file, and the one that picks videos shows exactly the videos.
+    #[test]
+    fn only_the_picking_listing_shows_files() {
+        let dir = std::env::temp_dir().join("km-video-browse-picking");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("inside")).expect("a folder to work in");
+        for name in ["b.mkv", "a.mp4", "notes.txt", "cover.jpg"] {
+            std::fs::write(dir.join(name), "x").expect("write");
+        }
+
+        let plain = list(&dir);
+        assert!(!plain.picking);
+        assert!(plain.files.is_empty(), "the folder picker shows folders");
+        assert_eq!(plain.folders.len(), 1);
+
+        let picking = list_for_picking(&dir);
+        assert!(picking.picking);
+        assert_eq!(
+            picking
+                .files
+                .iter()
+                .map(|file| file.name.clone())
+                .collect::<Vec<_>>(),
+            vec!["a.mp4", "b.mkv"],
+            "the videos, sorted, and nothing else that is in there"
+        );
+        assert_eq!(
+            picking.folders.len(),
+            1,
+            "and the way further in is still there"
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// A drive root trims to nothing useful, so it is left alone.

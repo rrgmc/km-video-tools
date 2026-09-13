@@ -37,6 +37,8 @@ fn render<T: Template>(template: &T) -> Response {
 pub struct Index {
     /// What the program calls itself, in the title and the bar.
     pub app_name: &'static str,
+    /// Which of the two pages this is, for the nav in the layout.
+    pub page: &'static str,
     /// The remembered folder, as typed.
     pub out: String,
     /// Whether that folder is there. A folder that is not there yet is not an error — it is made on
@@ -79,6 +81,8 @@ pub struct Index {
     pub job: Option<job::View>,
     /// What has arrived so far.
     pub results: Vec<job::Arrival>,
+    /// Always false here: this page is the fetch. See [`Results::converting`].
+    pub converting: bool,
 }
 
 /// `GET /` — the whole page.
@@ -162,6 +166,8 @@ fn page(state: &State) -> Index {
 
     Index {
         app_name: APP_NAME,
+        page: "fetch",
+        converting: false,
         out: settings.out.clone(),
         out_exists: out.as_deref().is_some_and(std::path::Path::is_dir),
         out_videos: out.as_deref().and_then(count_videos),
@@ -211,20 +217,64 @@ fn count_videos(dir: &std::path::Path) -> Option<usize> {
     Some(
         entries
             .flatten()
-            .filter(|entry| {
-                entry
-                    .path()
-                    .extension()
-                    .and_then(|ext| ext.to_str())
-                    .is_some_and(|ext| {
-                        matches!(
-                            ext.to_ascii_lowercase().as_str(),
-                            "mp4" | "mkv" | "webm" | "mov" | "avi" | "m4v"
-                        )
-                    })
-            })
+            .filter(|entry| km_video_core::convert::looks_like_video(&entry.path()))
             .count(),
     )
+}
+
+/// The other page.
+///
+/// **Its own struct rather than a flag on [`Index`]**, because the two pages share only the output
+/// folder and the size: a struct carrying both pages' fields would leave every handler filling in
+/// half of it with values nothing reads.
+#[derive(Template)]
+#[template(path = "convert.html")]
+pub struct Convert {
+    /// What the program calls itself, in the title and the bar.
+    pub app_name: &'static str,
+    /// Which of the two pages this is, for the nav in the layout.
+    pub page: &'static str,
+    /// The remembered folder, as typed.
+    pub out: String,
+    /// Whether that folder is there.
+    pub out_exists: bool,
+    /// How many videos are already in it, where it exists.
+    pub out_videos: Option<usize>,
+    /// Which of the three sizes is chosen, as [`km_video_core::size::Video`] spells it.
+    pub video: &'static str,
+    /// The sizes on offer, in the order they are shown.
+    pub sizes: Vec<SizeChoice>,
+    /// The job, running or lately finished.
+    pub job: Option<job::View>,
+    /// What has come out so far.
+    pub results: Vec<job::Arrival>,
+    /// Always true here: this page is the conversion. See [`Results::converting`].
+    pub converting: bool,
+}
+
+/// `GET /convert` — the page that converts videos already on disk.
+pub async fn convert(AxumState(state): AxumState<State>) -> Response {
+    render_convert_page(&state)
+}
+
+/// The convert page, for a handler that changed enough of it to redraw all of it.
+pub fn render_convert_page(state: &State) -> Response {
+    let settings = state.settings();
+    let out = settings.out();
+    let job = state.job();
+
+    render(&Convert {
+        app_name: APP_NAME,
+        page: "convert",
+        out: settings.out.clone(),
+        out_exists: out.as_deref().is_some_and(|path| path.is_dir()),
+        out_videos: out.as_deref().and_then(count_videos),
+        video: settings.video().unwrap_or_default().word(),
+        sizes: sizes(),
+        job: job.as_ref().map(|job| job.view()),
+        results: job.map(|job| job.results()).unwrap_or_default(),
+        converting: true,
+    })
 }
 
 /// The progress fragment, which is also what starting a fetch answers with.
@@ -233,19 +283,29 @@ fn count_videos(dir: &std::path::Path) -> Option<usize> {
 pub struct JobFragment {
     /// The job, or `None` where nothing has run yet.
     pub job: Option<job::View>,
+    /// Whether this job is a conversion rather than a fetch.
+    ///
+    /// Only the label over the log turns on it: those lines are yt-dlp talking during a fetch and
+    /// the ffmpeg command for each file during a conversion.
+    pub converting: bool,
 }
 
 /// `GET /progress` — the poll.
-pub async fn progress(AxumState(state): AxumState<State>) -> Response {
+pub async fn progress(
+    AxumState(state): AxumState<State>,
+    headers: axum::http::HeaderMap,
+) -> Response {
     render(&JobFragment {
         job: state.job().map(|job| job.view()),
+        converting: crate::handlers::asked_from_convert(&headers),
     })
 }
 
 /// The same fragment, for a handler that has just started something.
-pub fn job_fragment(job: &job::Job) -> Response {
+pub fn job_fragment(job: &job::Job, converting: bool) -> Response {
     render(&JobFragment {
         job: Some(job.view()),
+        converting,
     })
 }
 
@@ -255,12 +315,21 @@ pub fn job_fragment(job: &job::Job) -> Response {
 pub struct Results {
     /// One row per file.
     pub results: Vec<job::Arrival>,
+    /// Whether these rows came out of a conversion rather than a fetch.
+    ///
+    /// Only the note under them turns on it. The rows themselves are written by whichever half
+    /// produced them and say what they mean without help.
+    pub converting: bool,
 }
 
 /// `GET /results` — redrawn once, by the last frame the poll ever receives.
-pub async fn results(AxumState(state): AxumState<State>) -> Response {
+pub async fn results(
+    AxumState(state): AxumState<State>,
+    headers: axum::http::HeaderMap,
+) -> Response {
     render(&Results {
         results: state.job().map(|job| job.results()).unwrap_or_default(),
+        converting: crate::handlers::asked_from_convert(&headers),
     })
 }
 
@@ -278,6 +347,9 @@ pub struct Where {
     /// The folder, absent on the first click.
     #[serde(default)]
     pub at: Option<String>,
+    /// Present when the listing is picking videos rather than a folder to write into.
+    #[serde(default)]
+    pub files: Option<String>,
 }
 
 /// `GET /browse` — one step of the folder picker.
@@ -288,7 +360,11 @@ pub async fn browse(AxumState(state): AxumState<State>, Query(asked): Query<Wher
         None => browse::start(state.settings().out().as_deref()),
     };
     render(&Browse {
-        listing: browse::list(&at),
+        listing: if asked.files.is_some() {
+            browse::list_for_picking(&at)
+        } else {
+            browse::list(&at)
+        },
     })
 }
 

@@ -6,8 +6,8 @@ Two programs over one library:
 
 | | |
 |---|---|
-| **`km-video-fetch`** | The command line. Download a video with `yt-dlp` as H.264/AAC in MP4, write the title and artist into its tags, and say whether what arrived is playable. |
-| **`km-video-downloader`** | The same fetch, as an application with a window. Set a folder once, paste the links or pick a file of them, press Fetch, watch it happen. |
+| **`km-video-fetch`** | The command line. Download a video with `yt-dlp` as H.264/AAC in MP4, write the title and artist into its tags, and say whether what arrived is playable. `--convert` does the same to a video already on disk. |
+| **`km-video-downloader`** | The same fetch, as an application with a window. Set a folder once, paste the links or pick a file of them, press Fetch, watch it happen. A second page converts videos already on disk. |
 
 They are the same program twice: both call `km_video_core::fetch::fetch`, and differ only in whether
 its events become lines or a progress bar.
@@ -108,6 +108,33 @@ have forward instead of failing over a port it cannot have. **Two different rule
 conflate:** a folder's own list is the one file named exactly `km-video-fetch.kmvf` sitting in it, while
 the association is on the extension and opens any such file anywhere.
 
+## Videos you already have
+
+`--convert` takes a video that is already on disk and puts it in the same shape a download arrives
+in. Give it a file, or a folder to take every video in it:
+
+```sh
+km-video-fetch --convert 'D:\rips\Band - A Song.mkv' --out ./songs
+km-video-fetch --convert D:\rips --out ./songs --video small
+km-video-fetch --convert D:\rips --out ./songs --dry-run   # say what would happen, do nothing
+```
+
+**The file you name is read and never written.** The result goes into `--out` under the same name
+with a `.mp4` extension, and the original stays where it was. A video already in the right shape is
+copied rather than re-encoded — re-encoding it would take minutes and lose a generation of picture to
+produce a file packaging treats identically.
+
+If something of that name is in the output folder already, that file is skipped and nothing is
+written over it. So running the same conversion twice does nothing the second time, and you can point
+it at a folder again after adding a few videos to it.
+
+`--video` works here as it does for a download, with one difference: a picture larger than the size
+you asked for is re-encoded down to it rather than reported and left alone, because re-encoding is
+what you asked for. AAC sound is copied through untouched whichever size you choose.
+
+Repeat `--convert` to name more than one thing. The options that belong to a download — `--playlist`,
+`--cookies-from-browser`, a URL — are refused beside it.
+
 ## The window
 
 It is a real application on Windows and macOS: its own window, its own icon, no console. Inside the
@@ -125,12 +152,18 @@ password on it and it writes files as you. `--lan` opens it to the rest of your 
 network you trust and only while you need it. It remembers the output folder and the options
 between runs, in this platform's own config directory.
 
-It is one page, in four parts: where the videos go, what to fetch, how, and what happened. A folder
-is chosen by typing a path or by browsing — the listing is done on the server, because a browser will
-not tell a page where a picked file lives, and a native dialog would mean a GUI toolkit on every
-platform for one interaction. Progress is polled once a second, and yt-dlp's own output is kept
-beside the bar, because in a terminal that is what somebody reads when a download fails and there is
-no terminal here.
+There are two pages, chosen in the bar. **Fetch** is in four parts: where the videos go, what to
+fetch, how, and what happened. **Convert** is the same four over videos already on disk, and the
+picker there lists the video files in a folder as well as the folders — clicking one adds its path to
+the box, because a browser hands a page a picked file's contents rather than its location and a video
+is gigabytes.
+
+A folder is chosen by typing a path or by browsing — the listing is done on the server, because a
+browser will not tell a page where a picked file lives, and a native dialog would mean a GUI toolkit
+on every platform for one interaction. Progress is polled once a second, and the output of whatever
+is doing the work is kept beside the bar, because in a terminal that is what somebody reads when
+something fails and there is no terminal here. One thing runs at a time, and Stop belongs to whatever
+that is.
 
 ## What you need
 
