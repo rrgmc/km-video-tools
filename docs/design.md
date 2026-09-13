@@ -149,6 +149,34 @@ KMP status=finished    pct=100.0% speed=16.57MiB/s   eta=NA      title=in-profil
 Anything without the `KMP` prefix is yt-dlp talking to a person, and is passed through as such — that
 is what fills the log the page keeps beside the bar.
 
+## Converting a file already on disk
+
+`--convert` skips yt-dlp entirely and runs the checking half of a fetch against a file that is
+already there. What it owns is the ffmpeg argv, the same way the rest of this owns the yt-dlp one:
+`profile::transcode_argv` builds it, `profile::transcode` spawns it, and `--show-command` prints what
+was built so the two cannot drift apart.
+
+**Both filters are conditional on the probe.** `scale` is added only where the source overruns the
+size asked for, because scaling a picture to the size it already is still resamples it; `fps` only
+where the source is faster than the profile allows, because asking 30 fps of a 25 fps source *invents*
+frames. A file inside both ceilings gets neither, and is re-encoded only for its codec or its
+container.
+
+**The sound is copied where it is already AAC** — `-c:a copy`, so the audio in the finished file is
+the audio that went in, byte for byte — and encoded to AAC at 192k in stereo where it is not. This is
+the same rule a `--normalize` re-encode follows, and the reason a size is free to choose: the picture
+is the only thing any of these steps touches.
+
+**`-f mp4` is passed even though the output is named `.mp4`.** The encode writes through a temporary
+`.part` name and ffmpeg chooses its muxer by file extension, so leaving the container implicit fails
+with `Unable to choose an output format`, which reads like a broken input rather than a naming detail.
+
+**Progress comes from `-progress pipe:1`**, read on the calling thread while stderr is drained on one
+of its own: with `-loglevel error` there is very little of it, and a stderr pipe that fills while
+nothing reads it deadlocks the child. The field is `out_time_us`, or `out_time_ms` on a build that
+emits only the older spelling — both carry microseconds, ffmpeg's own name for the second one being
+a misnomer.
+
 ## Preflight
 
 `--version` runs first, which doubles as proving yt-dlp can be run at all, and calls out a copy more
