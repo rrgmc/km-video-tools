@@ -25,11 +25,16 @@ describe both.
 
 ## Cutting it
 
-### 1. Bump the version
+### 1. Bump the version, and write the changelog entry
 
 One line in `Cargo.toml`, then any cargo command to update `Cargo.lock`. Commit as
 `chore(release): X.Y.Z, <the phrase that names the release>`, with a body saying what moved and why
 the minor rather than the patch.
+
+**`CHANGELOG.md` gains its entry in that same commit**, which is the one arrangement where the
+number and the entry cannot disagree. It carries the date, the sections `Keep a Changelog` names,
+and a link to the release, and that link is dead until step 5 publishes it. Keep it to what a reader
+deciding whether to upgrade needs; the install steps and the checksums belong to the notes.
 
 ### 2. Prove the tree
 

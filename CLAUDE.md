@@ -13,6 +13,7 @@ programs over one library, and a `docs/` that says why each piece is the way it 
 | [`docs/design.md`](docs/design.md) | how `km-video-fetch` works — the argv it owns, the list grammar, the progress parser |
 | [`README.md`](README.md) | what the two programs do, for somebody using them |
 | [`RELEASE.md`](RELEASE.md) | cutting a release — the version's one home, and one setup program per platform |
+| [`CHANGELOG.md`](CHANGELOG.md) | what changed in each release, newest first |
 | `crates/km-video-downloader/static/README.md`, `icon/README.md` | the two folders carrying a trap of their own |
 
 **A decision is authoritative over anything here that disagrees with it**; where the two conflict,
@@ -27,7 +28,8 @@ the other one is out of date. A new product decision, or a changed requirement, 
    as much as documents**, and it is the rule most easily broken by somebody writing up a change
    they have just made. The full form, with the list of what creeps back, is
    `How a document in this repository is written` in `docs/decisions.md`, and `task lint:prose`
-   catches the shapes that have one.
+   catches the shapes that have one. `CHANGELOG.md` is the one exception, licensed by
+   `The changelog records what changed, and every other document states what is` beside it.
 2. **What a user reads is written in plain application language.** The window's pages, the installer
    panes, `--help` and console output get labels and ordinary sentences; the reasoning behind a
    control belongs in the `{# #}` or `//` beside it. clap builds `--help` out of the `///` comments
