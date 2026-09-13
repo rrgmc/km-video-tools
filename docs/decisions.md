@@ -694,6 +694,33 @@ rewriting it, and change the citation in the same commit.
 **The em-dash stays.** It is how a parenthetical mechanism is punctuated here. What goes is the
 clause after it that restates the clause before it, not the dash.
 
+## The changelog records what changed, and every other document states what is
+
+`CHANGELOG.md` holds one entry per release, and is the only file here licensed to be chronological.
+Everything else describes the repository as it is.
+
+**A tree that only states its present cannot answer the one question an upgrade turns on**, which is
+what moved between the version somebody has and the version they are looking at. The releases on
+GitHub answer it and are not in a checkout, so a reader offline, or reading a diff, or deciding
+whether a `git pull` is worth it, has nowhere to look.
+
+**An entry says what changed and links to the release.** The install steps, the SHA-256 of every
+artifact and what a build's round trip proved stay in the release notes, where `RELEASE.md` puts
+them. That boundary is what keeps two descriptions of one release from drifting: the changelog holds
+what is short enough to check at a glance, and nothing that has to be regenerated.
+
+**It is still a second place a release is described**, which is a cost paid nowhere else here. It
+buys a history that travels with the checkout, and the entry is kept short so that the two cannot
+diverge far.
+
+**`tools/dev/check-prose.sh` skips it**, because `used to` and `no longer` are what an entry is made
+of rather than a lapse into narration. It is the only path exempt for what it says; the other two are
+exempt for what they are.
+
+**The entry is written in the version-bump commit**, which is the one arrangement where the number
+and the entry cannot disagree. `RELEASE.md` step 1 says so. The link it carries points at a release
+that does not exist until step 5.
+
 ## What a user reads is written in plain application language
 
 **Every surface a person uses speaks the plain, conventional English of a software application.**

@@ -67,13 +67,18 @@ SHAPES=(
   "meta-commentary on the writing|\\brather than an (accident|oversight|omission)\\b"
 )
 
-# Two paths, for two different reasons. This script's own header names every shape it hunts. And
+# Three paths, for three different reasons. This script's own header names every shape it hunts. And
 # `htmx.min.js` is vendored and is one 50 KB line, so a single match in it prints the whole file to
 # the terminal -- a size exemption rather than licence to write badly in it.
 #
+# `CHANGELOG.md` is the third, and it is the only one exempt for what it says rather than for what it
+# is. The shapes above are that document's own vocabulary: an entry exists to say what a release
+# changed, which cannot be written without naming the state before it. See
+# `The changelog records what changed, and every other document states what is` in docs/decisions.md.
+#
 # Nothing else is exempt, `docs/decisions.md` included: that file is where somebody writes up a
 # decision they have just made, which is where this rule is most easily broken.
-EXEMPT='^(tools/dev/check-prose\.sh|crates/km-video-downloader/static/htmx\.min\.js)$'
+EXEMPT='^(tools/dev/check-prose\.sh|crates/km-video-downloader/static/htmx\.min\.js|CHANGELOG\.md)$'
 
 # Text this repository writes: documents, and the languages whose comments carry reasoning. `.xml`
 # and `.iss` are in because the macOS `Distribution` and the Inno Setup script each argue a version
