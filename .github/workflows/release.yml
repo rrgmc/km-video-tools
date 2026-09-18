@@ -1,0 +1,150 @@
+name: release
+
+# **The Windows half of a release is built here and the macOS half by hand.** `pkgbuild` needs two
+# Developer ID certificates and a stored `notarytool` profile, which are a machine's keychain rather
+# than a repository's secrets; Inno Setup needs a Windows machine and nothing else, and a runner is
+# one. See `The Windows installer is built by the tag, and the macOS package by hand` in
+# docs/decisions.md.
+#
+# **A tag produces a draft, never a published release.** A tag is not a finished release: the macOS
+# package is attached afterwards from a Mac, and the notes are written to describe both. RELEASE.md
+# has the steps either side of this job.
+#
+# **`workflow_dispatch` is the dry run**, and it is the only one there is — the manual button is
+# offered for workflows on the default branch, so this file proves itself on `master` before a tag
+# asks it for something people install. It stops before the release, uploading only a workflow
+# artifact.
+#
+# **This is not a required status check.** It never runs on a pull request, so a ruleset naming it
+# would wait for a job that cannot start. `check (ubuntu-latest)` and `check (windows-latest)` are
+# the two the ruleset names, and a tag sits on a merge commit that has already passed them — which
+# is what `Nothing reaches master except through a pull request` guarantees, and why `task check` is
+# not repeated here.
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+# **`cancel-in-progress: false`**, against ci.yml's. The round trip inside the installer script
+# installs the product, reads the registry and uninstalls it; a job cancelled between those leaves a
+# runner holding an installed build and HKCU keys that nothing will now remove.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  windows:
+    runs-on: windows-latest
+
+    # `lto = "thin"` with `codegen-units = 1` over the wry/tao stack, then a compile and a round trip
+    # on top of it. The default of 360 minutes is a stuck job billed for six hours.
+    timeout-minutes: 60
+
+    # **The only scope, and only because the last step creates a release.** A job's block replaces the
+    # default set rather than adding to it, so everything this does not name is unavailable to
+    # anything the job runs.
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v7
+
+      # **The toolchain comes from `rust-toolchain.toml` and is named nowhere in this file**, for the
+      # reason ci.yml gives at greater length and `The Rust toolchain is pinned exactly` in
+      # docs/decisions.md decides. `tools/dev/check-toolchain-pin.sh` reads every workflow here and
+      # fails on a toolchain argument or a `dtolnay/rust-toolchain` step.
+      - run: rustup toolchain install --no-self-update
+
+      - uses: Swatinem/rust-cache@v2
+
+      # **Chocolatey here, where the script's own instructions say winget.** winget wants a
+      # logged-in user and the Store, neither of which a runner has, and both fetch the same
+      # compiler. It lands in `C:\Program Files (x86)\Inno Setup 6`, which is one of the three
+      # places `find_iscc()` in tools/platform/windows/installer.sh looks, so the script is told
+      # nothing.
+      - name: Inno Setup
+        run: choco install innosetup --no-progress -y
+
+      - uses: arduino/setup-task@v2
+        with:
+          version: 3.x
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      # **`task dist:setup` and not the script**, so that what a tag builds is what RELEASE.md tells
+      # somebody to type. The `platforms:` fan-out picks the Windows arm on its own.
+      #
+      # `task clean:old` is skipped, and it is the one step of RELEASE.md's that a runner does not
+      # need: it exists so that a staged build cannot land beside an older one, and `dist/` here is
+      # empty.
+      - name: Build the setup program
+        run: task dist:setup
+
+      # **Named, not searched for.** `A staged folder is chosen by the manifest and named by the
+      # binary` in docs/decisions.md is the entry, and the failure it forbids is silent: a glob
+      # expands in sorted order and would hand a later step the wrong version with nothing
+      # disagreeing about it. These are the same two helpers the installer script itself uses.
+      - name: The artifact
+        shell: bash
+        run: |
+          . tools/dist/common.sh
+          version="$(dist_version "$(dist_dir bin windows)/km-video-downloader.exe")"
+          setup="$(dist_dir setup windows)/km-video-tools-setup-$version-x86_64.exe"
+          [ -f "$setup" ] || { echo "release: the build produced no $setup" >&2; exit 1; }
+          printf 'version=%s\n' "$version" >> "$GITHUB_ENV"
+          printf 'setup=%s\n'   "$setup"   >> "$GITHUB_ENV"
+
+      # **The tag has to agree with the executable it is naming.** RELEASE.md asks a person to
+      # confirm the number in every place it landed; this is the one place that cannot be skipped,
+      # and the version is read out of the built binary rather than the manifest for the reason every
+      # script under tools/dist reads it that way.
+      - name: The tag says what the binary says
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: bash
+        run: |
+          [ "v$version" = "$GITHUB_REF_NAME" ] || {
+            echo "release: the tag is $GITHUB_REF_NAME and the build is $version." >&2
+            echo "          Bump [workspace.package] version in Cargo.toml, or tag v$version." >&2
+            exit 1
+          }
+
+      # Always, so that the dry run hands over a file to open.
+      - uses: actions/upload-artifact@v4
+        with:
+          name: km-video-tools-setup-windows
+          path: ${{ env.setup }}
+          if-no-files-found: error
+
+      # RELEASE.md's **Verification** section carries the SHA-256 of every attached installer and the
+      # tree it was built from. The run that produced the file is where both are free.
+      - name: What to put in the notes
+        shell: bash
+        run: |
+          {
+            printf '### `%s`\n\n' "${setup##*/}"
+            printf '| | |\n|---|---|\n'
+            printf '| version | `%s` |\n' "$version"
+            printf '| sha-256 | `%s` |\n' "$(sha256sum "$setup" | awk '{print $1}')"
+            printf '| bytes | `%s` |\n' "$(wc -c < "$setup" | tr -d ' ')"
+            printf '| commit | `%s` |\n' "$GITHUB_SHA"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # **Create the draft only if there is nothing there**, because the other machine may have got
+      # here first: a release made by hand from the Mac is a release this must upload into rather
+      # than fail over. `--clobber` for the same reason in the other direction, so re-running a job
+      # replaces the asset instead of refusing.
+      - name: Attach it to a draft release
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 || gh release create "$GITHUB_REF_NAME" \
+            --draft \
+            --title "$GITHUB_REF_NAME" \
+            --notes "The notes are written by hand and the macOS package attached from a Mac. See RELEASE.md."
+          gh release upload "$GITHUB_REF_NAME" "$setup" --clobber
