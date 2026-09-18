@@ -9,7 +9,7 @@ resolver = "3"
 members = ["crates/*"]
 
 [workspace.package]
-version = "1.11.0"
+version = "1.12.0"
 edition = "2024"
 # **Equal to the pin in `rust-toolchain.toml`, and bumped with it.** That file decides the version;
 # this repeats it because no format lets a manifest derive it, and `tools/dev/check-toolchain-pin.sh`

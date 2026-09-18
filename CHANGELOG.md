@@ -8,6 +8,21 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 Each version links to its release, and that is where the installers live along with the install
 steps for each platform and the SHA-256 of every artifact.
 
+## [1.12.0] - 2026-09-18
+
+### Added
+
+- `--convert` takes a video already on disk and puts it in the shape a download arrives in. Name a
+  file, or a folder to take every video in it, and repeat the option for more than one. The result
+  goes into `--out` under the same name with a `.mp4` extension, the file named is read and never
+  written, and a name that is in the output folder already is skipped.
+- A video already in the shape packaging wants is copied rather than re-encoded.
+- A Convert page in the window beside Fetch, over the same four parts. Its picker lists the video
+  files in a folder as well as the folders.
+- `--video` applies to a conversion, where a picture larger than the size asked for is re-encoded
+  down to it, because re-encoding is what was asked for.
+- Pushing a `v*` tag builds the Windows installer and attaches it to a draft release.
+
 ## [1.11.0] - 2026-09-12
 
 ### Added
@@ -105,6 +120,7 @@ The first release from this repository.
 - The fetch is a library function reported as events rather than a program that prints, which is
   what lets one sequence answer for both programs.
 
+[1.12.0]: https://github.com/rrgmc/km-video-tools/releases/tag/v1.12.0
 [1.11.0]: https://github.com/rrgmc/km-video-tools/releases/tag/v1.11.0
 [1.10.0]: https://github.com/rrgmc/km-video-tools/releases/tag/v1.10.0
 [1.9.0]: https://github.com/rrgmc/km-video-tools/releases/tag/v1.9.0
