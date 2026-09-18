@@ -5,9 +5,9 @@
 #   tools/dev/check-toolchain-pin.sh   # exit 1 and name every disagreement
 #
 # `rust-toolchain.toml` holds the pin. One tracked file has to repeat the number, because no manifest
-# format lets cargo derive it from that file -- `rust-version` in Cargo.toml -- and one must NOT
-# repeat it, because it is supposed to read the file instead: .github/workflows/ci.yml. Both halves
-# are checked here.
+# format lets cargo derive it from that file -- `rust-version` in Cargo.toml -- and the workflows
+# under .github/workflows must NOT repeat it, because they are supposed to read the file instead.
+# Both halves are checked here.
 #
 # The standing decision is `The Rust toolchain is pinned exactly` in docs/decisions.md. This exists
 # for the reason that entry gives: a copy nothing compares is a copy that drifts, and the failure it
@@ -57,22 +57,26 @@ elif [ "$declared" != "$channel" ]; then
   fail "Cargo.toml says rust-version = \"$declared\" but the pin is $channel"
 fi
 
-# -- ...and the two that must not -----------------------------------------------------------------
+# -- ...and the workflows that must not ------------------------------------------------------------
 
-# CI installs by running `rustup toolchain install` with no toolchain argument, which resolves
-# rust-toolchain.toml. A toolchain named on that line is a second pin that a bump would not move.
-if grep -Ev '^[[:space:]]*#' .github/workflows/ci.yml \
-     | grep -Eq 'rustup toolchain install[[:space:]]+([0-9]|stable|beta|nightly)'; then
-  fail ".github/workflows/ci.yml names a toolchain on its 'rustup toolchain install' line.
-       Leave it off and rustup resolves rust-toolchain.toml, components and all."
-fi
-
-# `dtolnay/rust-toolchain` cannot read that file -- its `toolchain` input is required -- so re-adding
-# the action necessarily reintroduces a copy of the number.
+# A workflow installs by running `rustup toolchain install` with no toolchain argument, which
+# resolves rust-toolchain.toml. A toolchain named on that line is a second pin that a bump would not
+# move.
 #
-# Anchored on `uses:` rather than the bare name, because ci.yml explains why the action is not used
-# and a check that forbade *naming* it would forbid its own rationale.
+# `dtolnay/rust-toolchain` cannot read that file -- its `toolchain` input is required -- so the
+# action necessarily carries a copy of the number. Anchored on `uses:` rather than the bare name,
+# because ci.yml explains why the action is not used and a check that forbade *naming* it would
+# forbid its own rationale.
+#
+# **Both are over every workflow rather than over one by name.** A rule one file is held to is a rule
+# the next file escapes, and a release workflow that names a toolchain builds what people install on
+# a compiler nobody chose.
 for wf in .github/workflows/*.yml; do
+  if grep -Ev '^[[:space:]]*#' "$wf"        | grep -Eq 'rustup toolchain install[[:space:]]+([0-9]|stable|beta|nightly)'; then
+    fail "${wf} names a toolchain on its 'rustup toolchain install' line.
+       Leave it off and rustup resolves rust-toolchain.toml, components and all."
+  fi
+
   if grep -Eq '^[[:space:]]*-?[[:space:]]*uses:[[:space:]]*dtolnay/rust-toolchain' "$wf"; then
     fail "${wf} uses dtolnay/rust-toolchain, which cannot read rust-toolchain.toml.
        Install with 'rustup toolchain install --no-self-update' instead, which resolves the file."
