@@ -765,9 +765,9 @@ what moved between the version somebody has and the version they are looking at.
 GitHub answer it and are not in a checkout, so a reader offline, or reading a diff, or deciding
 whether a `git pull` is worth it, has nowhere to look.
 
-**An entry says what changed and links to the release.** The install steps, the SHA-256 of every
-artifact and what a build's round trip proved stay in the release notes, where `RELEASE.md` puts
-them. That boundary is what keeps two descriptions of one release from drifting: the changelog holds
+**An entry says what changed and links to the release.** The install steps and the SHA-256 of every
+artifact stay in the release notes, where `RELEASE.md` puts them. That boundary is what keeps two
+descriptions of one release from drifting: the changelog holds
 what is short enough to check at a glance, and nothing that has to be regenerated.
 
 **It is still a second place a release is described**, which is a cost paid nowhere else here. It
@@ -873,3 +873,22 @@ about the artifact than a second test run would.
 `workflow_dispatch` is how the workflow is proved before a tag depends on it. GitHub offers the
 manual button for workflows on the default branch, so the dry run happens on `master`: the same job
 without the tag, stopping at a workflow artifact and touching no release.
+
+## Release notes are what a reader needs to decide and to install
+
+**The notes answer two questions and stop**: what is new, and how to install it. An opening line,
+`What is new` as bullets, `Install` with a paragraph per platform and the line about yt-dlp and
+ffmpeg, and the SHA-256 of each artifact under `Checksums`.
+
+**Somebody reading a release is deciding whether to upgrade**, and a page of build reporting is
+between them and the two paragraphs that decide it. Length costs attention at the moment a reader
+has least of it, which is why the shape above is a ceiling rather than a suggestion.
+
+**What a build proved belongs to the build.** Both installers assert their own round trip and refuse
+to finish otherwise, the tag build refuses to attach an installer whose version disagrees with the
+tag, and `task check` runs on two platforms and in CI. Those guarantees hold whether or not a
+paragraph describes them, and a reader who wants the detail has the workflow run and
+`Checking a published release` in `RELEASE.md`.
+
+**The checksums stay**, because `The changelog records what changed, and every other document states
+what is` sends a reader here for them, and because a hash is one line that a person can act on.

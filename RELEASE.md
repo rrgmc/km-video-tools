@@ -163,15 +163,13 @@ certificate, and until there is one SmartScreen stops a first run.
 
 ## What the notes say
 
-The shape, section by section: an opening paragraph on what changed and for whom; **Install on
-Windows**; **Install on macOS**; **What you need** (yt-dlp and ffmpeg are not bundled); **What is new
-in X.Y.Z**; and **Verification**.
+**Short.** An opening line on what the release is for; **What is new** as bullets, one per thing
+somebody would notice; **Install** with a paragraph per platform and the line that yt-dlp and ffmpeg
+are not bundled; **Checksums**, the SHA-256 of each attached installer and nothing around it. See
+`Release notes are what a reader needs to decide and to install` in `docs/decisions.md`.
 
-Verification carries the SHA-256 of every attached installer, what tree each was built from, and what
-each one's own round trip proved. Both installers test themselves on every build — the Windows one
-installs into a scratch location and reads the `.kmvf` association back out of the registry with
-`reg.exe`, the macOS one expands the package it just wrote and diffs both components against what was
-staged — so there is something specific to say, and saying it is the point of the section.
+What a build proved stays in the build. The round trips, the tag-against-binary check and the test
+counts are in the workflow run and in `Checking a published release` below.
 
 Write the notes for somebody who has not read the commits.
 
