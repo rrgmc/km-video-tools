@@ -62,15 +62,20 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
-      # **Chocolatey here, where the script's own instructions say winget.** winget wants a
-      # logged-in user and the Store, neither of which a runner has, and both fetch the same
-      # compiler. It lands in `C:\Program Files (x86)\Inno Setup 6`, which is one of the three
-      # places `find_iscc()` in tools/platform/windows/installer.sh looks, so the script is told
-      # nothing.
+      # **The runner image ships Inno Setup, and this is what stops the job depending on that.**
+      # It is a no-op on an image that has it and an install on one that does not, and either way it
+      # lands in `C:\Program Files (x86)\Inno Setup 6`, one of the three places `find_iscc()` in
+      # tools/platform/windows/installer.sh looks, so the script is told nothing.
+      #
+      # **Chocolatey, where the script's own instructions say winget.** winget wants a logged-in
+      # user and the Store, neither of which a runner has, and both fetch the same compiler.
       - name: Inno Setup
         run: choco install innosetup --no-progress -y
 
-      - uses: arduino/setup-task@v2
+      # v3 rather than v2, for the reason ci.yml pins `actions/checkout` at v7: v2 targets Node 20,
+      # which the runners force onto Node 24 and warn about on every run. Its one breaking change is
+      # that Node 24 runtime, which a GitHub-hosted runner already provides.
+      - uses: arduino/setup-task@v3
         with:
           version: 3.x
           repo-token: ${{ secrets.GITHUB_TOKEN }}
@@ -113,10 +118,19 @@ jobs:
           }
 
       # Always, so that the dry run hands over a file to open.
-      - uses: actions/upload-artifact@v4
+      #
+      # **`archive: false`, so what comes down is the installer and not a zip holding one.** The
+      # artifact then takes the file's own name, which carries the version and is the name a person
+      # would be handed. `name:` is ignored under that setting, so it is left off rather than
+      # written and disbelieved, and `overwrite: true` is there for the reason `--clobber` is on the
+      # release upload below: a re-run of the same commit produces the same name.
+      #
+      # v7 rather than v4 for Node 24, as with the action above, and for `archive:` itself.
+      - uses: actions/upload-artifact@v7
         with:
-          name: km-video-tools-setup-windows
           path: ${{ env.setup }}
+          archive: false
+          overwrite: true
           if-no-files-found: error
 
       # RELEASE.md's **Verification** section carries the SHA-256 of every attached installer and the
