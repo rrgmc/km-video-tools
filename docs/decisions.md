@@ -835,4 +835,41 @@ ruleset. A merge commit keeps a branch's commits as they were written, and the `
 line is where the history says what a branch did.
 
 **Tags are outside the rule.** A release is tagged on `master` after its pull request merges, and the
-tag is pushed on its own. `RELEASE.md` step 4 has the commands.
+tag is pushed on its own. `RELEASE.md`'s *Merge, then tag* has the commands.
+
+## The Windows installer is built by the tag, and the macOS package by hand
+
+**Pushing `vX.Y.Z` builds the Windows setup program and attaches it to a draft release.**
+`.github/workflows/release.yml` runs `task dist:setup` on a `windows-latest` runner, so the
+installer people download is compiled by the same command a person would type, and the round trip
+inside `tools/platform/windows/installer.sh` installs it, reads the `.kmvf` association out of the
+registry and uninstalls it before the job is allowed to succeed.
+
+**The asymmetry is the rule rather than a gap.** Inno Setup needs a Windows machine and nothing
+private. `pkgbuild` needs a Developer ID Application certificate, a Developer ID Installer
+certificate and a stored `notarytool` profile, all of which live in one machine's keychain. The
+signed, notarized, stapled `.pkg` is the only macOS file anybody is handed, so a runner that could
+build an unsigned one would produce nothing publishable. A Mac with those three things is what the
+macOS half costs, and putting the certificates into repository secrets buys a build that still needs
+a person to check it.
+
+**A draft, and never a published release.** The second platform's package arrives afterwards and the
+notes are written to describe both, so a tag is not a finished release and a workflow that published
+one would be announcing half of it. The job creates the draft only when there is nothing there,
+because the Mac may reach the release first, and uploads with `--clobber`, so re-running it replaces
+the asset rather than refusing.
+
+**The tag has to agree with the executable it names.** `dist_version()` reads the number out of the
+built binary, and the job fails when that is not the tag with the `v` taken off. A tag that names a
+version the tree does not build therefore produces no artifact at all, rather than an installer
+correctly labelled for a build nobody asked for. That is the failure `A staged folder is chosen by
+the manifest and named by the binary` describes, reached by a different road.
+
+**`task check` is not repeated in that workflow.** A tag sits on a merge commit that
+`check (ubuntu-latest)` and `check (windows-latest)` have already passed, which is what
+`Nothing reaches master except through a pull request` guarantees, and the round trip says more
+about the artifact than a second test run would.
+
+`workflow_dispatch` is how the workflow is proved before a tag depends on it. GitHub offers the
+manual button for workflows on the default branch, so the dry run happens on `master`: the same job
+without the tag, stopping at a workflow artifact and touching no release.

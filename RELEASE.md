@@ -1,9 +1,14 @@
 # Releasing
 
-A release is a tag, a GitHub release, and one setup program per platform attached to it. Everything
-in it is built by hand on the platform it is for. Nothing here is automated, and the parts that
-could not be automated are the reason: `.github/workflows/ci.yml` runs on pushes and pull requests
-to `master`, never on a tag, and publishes nothing.
+A release is a tag, a GitHub release, and one setup program per platform attached to it. Pushing the
+tag builds the Windows installer on a runner and attaches it to a draft release; the macOS package
+is built, signed and notarized on a Mac and attached by hand. See `The Windows installer is built by
+the tag, and the macOS package by hand` in `docs/decisions.md`.
+
+`.github/workflows/ci.yml` runs on pushes and pull requests to `master` and publishes nothing.
+`.github/workflows/release.yml` runs on a `v*` tag, and on a manual button that stops at a workflow
+artifact. That button is the dry run, and GitHub offers it for workflows on the default branch
+alone, so the release job is proved from `master` rather than from the branch that adds it.
 
 ## The version is authored in one place
 
@@ -14,14 +19,15 @@ executable** rather than out of the manifest.
 
 That last rule is what a release depends on: `dist_version()` in `tools/dist/common.sh` asks the
 binary, so a folder name cannot disagree with the program inside it. `dist_staged_dir()` picks the
-folder by the manifest and the binary inside still says what it is.
+folder by the manifest and the binary inside still says what it is. The tag build asks the same
+question of the tag: `vX.Y.Z` has to equal what the executable answers, or the job attaches nothing.
 
-## Both artifacts are built on the machine they are for
+## The two halves arrive at different times
 
 Inno Setup is a Windows program and `pkgbuild` is a macOS one. Neither cross-builds, so a release
-needs both machines and its two halves arrive at different times. **A tag is not a finished
-release.** The second platform's package is attached afterwards, and the notes are edited then to
-describe both.
+needs both platforms and only one of them is a runner. **A tag is not a finished release.** The
+macOS package is attached afterwards and the notes are written then to describe both, which is why
+the tag leaves a draft.
 
 ## Cutting it
 
@@ -36,8 +42,8 @@ change. See `Nothing reaches master except through a pull request` in `docs/deci
 
 **`CHANGELOG.md` gains its entry in that same commit**, which is the one arrangement where the
 number and the entry cannot disagree. It carries the date, the sections `Keep a Changelog` names,
-and a link to the release, and that link is dead until step 5 publishes it. Keep it to what a reader
-deciding whether to upgrade needs; the install steps and the checksums belong to the notes.
+and a link to the release, and that link is dead until the draft is published. Keep it to what a
+reader deciding whether to upgrade needs; the install steps and the checksums belong to the notes.
 
 ### 2. Prove the tree
 
@@ -50,24 +56,7 @@ Run it on **both** platforms before tagging, and know that the numbers differ: t
 nowhere else. CI has no macOS runner, so a `task check` on a Mac is the only thing that compiles the
 `#[cfg(target_os = "macos")]` code at all.
 
-### 3. Stage and read the version back
-
-```sh
-task clean:old      # take away older staged versions -- see the trap below
-task dist:setup     # or task dist:setup:notarized on macOS
-```
-
-Before tagging, confirm the number in every place it landed: the staged folder's name, both
-binaries' `--version`, both staged `README.txt` files, and on Windows the executable's VERSIONINFO.
-They are all derived from one build, so they agree or something is stale.
-
-> **The trap `clean:old` exists for.** A staged folder carries its version in its name, so a build of
-> one version lands *beside* another rather than replacing it. A carrier that searched for its
-> payload would find the wrong one, and everything downstream would then agree about it, because the
-> version is read out of those same executables. `dist_staged_dir()` names the folder instead of
-> searching, and `clean:old` stops there being a second one to find. Run it first.
-
-### 4. Merge, then tag
+### 3. Merge, then tag
 
 Open a pull request for the release branch and merge it once both CI jobs pass. Then tag the merge
 commit on `master` with an annotated tag whose message is the bare version:
@@ -83,25 +72,46 @@ git push origin vX.Y.Z
 The tag is pushed on its own because `master` accepts no push. The rule covers the branch only, so a
 tag still goes straight to the remote.
 
-### 5. Publish
+### 4. Watch the tag build
 
 ```sh
-gh release create vX.Y.Z \
-  --title "vX.Y.Z — <the same phrase>" \
-  --notes-file <notes> \
-  dist/setup/<platform>/<the artifact>
+gh run watch $(gh run list --workflow release --limit 1 --json databaseId -q '.[0].databaseId')
 ```
 
-### 6. Finish it from the other machine
+It stages both programs, compiles the installer, installs and uninstalls it, checks the tag against
+what the executable answers, and leaves a draft release with
+`km-video-tools-setup-X.Y.Z-x86_64.exe` attached. **The run summary is where the notes come from**:
+it carries that file's SHA-256, its size and the commit it was built from, which is what
+**Verification** below asks for.
+
+### 5. Build the macOS package, and attach it
+
+From a Mac, on the tagged commit:
 
 ```sh
 git pull --ff-only origin master
 git rev-parse HEAD vX.Y.Z^{commit}    # the same sha twice, and a clean tree
 task check
-task clean:old
-task dist:setup:notarized             # on macOS; task dist:setup on Windows
-gh release upload vX.Y.Z <the artifact>
-gh release edit vX.Y.Z --notes-file <notes edited to describe both>
+task clean:old                        # take away older staged versions -- see the trap below
+task dist:setup:notarized
+shasum -a 256 dist/setup/macos/<the artifact>
+gh release upload vX.Y.Z dist/setup/macos/<the artifact>
+```
+
+Before attaching, confirm the number in every place it landed: the staged folder's name, both
+binaries' `--version`, both staged `README.txt` files, and the package's own name. They are all
+derived from one build, so they agree or something is stale.
+
+> **The trap `clean:old` exists for.** A staged folder carries its version in its name, so a build of
+> one version lands *beside* another rather than replacing it. A carrier that searched for its
+> payload would find the wrong one, and everything downstream would then agree about it, because the
+> version is read out of those same executables. `dist_staged_dir()` names the folder instead of
+> searching, and `clean:old` stops there being a second one to find. Run it first.
+
+### 6. Write the notes, and publish the draft
+
+```sh
+gh release edit vX.Y.Z   --title "vX.Y.Z — <the same phrase>"   --notes-file <notes describing both platforms>   --draft=false
 ```
 
 ## The macOS package is signed, notarized and stapled

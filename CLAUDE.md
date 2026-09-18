@@ -112,9 +112,10 @@ no C compiler, no bindgen and no libclang.
   `tools/dev/check-toolchain-pin.sh` fails if the two disagree, and `task check` runs it first.
 - **`missing_docs = "warn"` is load-bearing.** Every item in this code carries a doc comment because
   of that lint, and the comments are where the reasoning is.
-- **A heading in `docs/decisions.md` is quoted from outside `docs/`.** `.github/workflows/ci.yml`
-  and `rust-toolchain.toml` each cite one by its full text and nothing validates the citation, so
-  grep for a heading before rewriting it and change the citation in the same commit.
+- **A heading in `docs/decisions.md` is quoted from outside `docs/`.** `.github/workflows/ci.yml`,
+  `.github/workflows/release.yml`, `RELEASE.md` and `rust-toolchain.toml` each cite one by its full
+  text and nothing validates the citation, so grep for a heading before rewriting it and change the
+  citation in the same commit.
 - **`dist/` is output and is never committed.** The staging scripts write it, never build into it.
 - **The sibling project is "the karaoke app"** in every tracked file here, and its repository name
   appears in none of them.
