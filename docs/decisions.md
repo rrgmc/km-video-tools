@@ -815,3 +815,24 @@ keeps the plain statement.
 **Plain does not mean shorter.** A fact a reader acts on survives the rewrite: that a browser cannot
 hand a page a folder path is why the picker lists server-side, and it stays. What goes is the
 argument around the fact.
+
+## Nothing reaches master except through a pull request
+
+**A repository ruleset on `master` requires a pull request, and nobody can bypass it**, the owner
+included. It also requires both CI jobs, `check (ubuntu-latest)` and `check (windows-latest)`, to
+pass, and it refuses a force-push or a deletion of the branch.
+
+The repository is public, so `master` is what anybody who clones it builds. A direct push skips the
+Windows job, and that job is the only one that sees Windows path rules and the `#[cfg(windows)]`
+code. A bypass for the owner would leave the release commit as the one change that reaches `master`
+without CI, and that is the commit people install.
+
+**A pull request needs no approving review.** The project has one maintainer, and GitHub does not let
+an author approve their own pull request, so a required review would block every merge.
+
+**Merge commits only.** Squash and rebase are turned off in the repository settings and in the
+ruleset. A merge commit keeps a branch's commits as they were written, and the `merge:` subject
+line is where the history says what a branch did.
+
+**Tags are outside the rule.** A release is tagged on `master` after its pull request merges, and the
+tag is pushed on its own. `RELEASE.md` step 4 has the commands.

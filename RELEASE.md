@@ -31,6 +31,9 @@ One line in `Cargo.toml`, then any cargo command to update `Cargo.lock`. Commit 
 `chore(release): X.Y.Z, <the phrase that names the release>`, with a body saying what moved and why
 the minor rather than the patch.
 
+The commit goes on a branch of its own and reaches `master` through a pull request, like every other
+change. See `Nothing reaches master except through a pull request` in `docs/decisions.md`.
+
 **`CHANGELOG.md` gains its entry in that same commit**, which is the one arrangement where the
 number and the entry cannot disagree. It carries the date, the sections `Keep a Changelog` names,
 and a link to the release, and that link is dead until step 5 publishes it. Keep it to what a reader
@@ -64,14 +67,21 @@ They are all derived from one build, so they agree or something is stale.
 > version is read out of those same executables. `dist_staged_dir()` names the folder instead of
 > searching, and `clean:old` stops there being a second one to find. Run it first.
 
-### 4. Tag and push
+### 4. Merge, then tag
 
-An annotated tag whose message is the bare version:
+Open a pull request for the release branch and merge it once both CI jobs pass. Then tag the merge
+commit on `master` with an annotated tag whose message is the bare version:
 
 ```sh
+gh pr create --fill
+gh pr merge --merge --delete-branch   # once CI passes
+git switch master && git pull --ff-only origin master
 git tag -a vX.Y.Z -m "X.Y.Z"
-git push origin master --follow-tags
+git push origin vX.Y.Z
 ```
+
+The tag is pushed on its own because `master` accepts no push. The rule covers the branch only, so a
+tag still goes straight to the remote.
 
 ### 5. Publish
 
