@@ -2,27 +2,16 @@
 
 Tools for getting karaoke **video** songs onto disk, in the shape a karaoke package wants them.
 
-Two programs over one library:
-
 | | |
 |---|---|
-| **`km-video-fetch`** | The command line. Download a video with `yt-dlp` as H.264/AAC in MP4, write the title and artist into its tags, and say whether what arrived is playable. `--convert` does the same to a video already on disk. |
-| **`km-video-downloader`** | The same fetch, as an application with a window. Set a folder once, paste the links or pick a file of them, press Fetch, watch it happen. A second page converts videos already on disk. |
-
-They are the same program twice: both call `km_video_core::fetch::fetch`, and differ only in whether
-its events become lines or a progress bar.
+| **`km-video-fetch`** | The command line. It downloads a video with `yt-dlp`, writes the title and artist into its tags, and reports whether the file is playable. `--convert` does the same to a video already on disk. |
+| **`km-video-downloader`** | The same fetch in a window. Set a folder, paste the links, press Fetch. A second page converts videos already on disk. |
 
 ## What it is for
 
 A karaoke app that plays video songs wants one shape: **H.264 in 8-bit 4:2:0, at most 1080p30, AAC
-audio, in MP4**. A download that took whatever a site offered arrives as VP9 at
-60 fps and costs an hour of re-encoding per song; a download that *asked* for AVC and AAC arrives in
-profile and gets copied.
-
-That selector is not something anybody should be retyping, and neither are the two
-`--parse-metadata` rules that put a song's title and artist into the container's tags at the one
-moment yt-dlp still knows them. This is that command line, written down, plus a check on what
-landed.
+audio, in MP4**. These tools ask the site for that shape, so the file that arrives needs no
+re-encoding.
 
 ```sh
 km-video-fetch '<url>' --out ./songs
@@ -32,33 +21,28 @@ km-video-fetch --from-file urls.txt --out ./songs
 km-video-downloader                    # the same thing, with a window
 ```
 
-## Smaller files, without touching the song
+`km-video-fetch --help` lists every option.
 
-A karaoke video is a caption over a background, so the picture is where disk can be saved. `--video`
-asks for less of it:
+## Smaller files
+
+`--video` asks for a smaller picture. The sound is the same at every size.
 
 ```sh
 km-video-fetch '<url>' --out ./songs --video small   # 720p, roughly half the size
 km-video-fetch '<url>' --out ./songs --video tiny    # 480p
 ```
 
-**The sound is the same whichever you choose.** yt-dlp picks the video and audio streams separately
-and muxes them, so a shorter picture fetches the audio a full-size one would have, byte for byte.
-The saving costs no processing time and nothing you can hear.
+The default is `full`, which is 1080p.
 
-`full` is what you get if you say nothing, and is 1080p. Every size is one a karaoke package stores
-as it is, so nothing downstream re-encodes what you chose.
+Some sites offer nothing as small as the size you asked for. `--normalize` re-encodes those videos
+down to it, which takes minutes per song.
 
-With `--normalize`, a video that arrives larger than you asked for is re-encoded down to it — which
-happens only where a site had nothing smaller on offer. That takes minutes per song, so it waits to
-be asked. A re-encode never rebuilds AAC audio: it copies the stream through untouched.
+## Lists of links
 
-A folder remembers what has already been fetched into it (`.km-fetched.txt`), and can carry its own
-list of what to fetch (`km-video-fetch.kmvf`), so re-running over a playlist picks up only what is
-new. The page reads that list too, and offers it as one click when it is there.
+An output folder records what was fetched into it, in `.km-fetched.txt`. Running the same playlist
+again fetches only what is new.
 
-A line of such a list may say what it is and where it goes, which is the only way to fetch a mix of
-single videos and whole playlists, or to sort what arrives into folders:
+A list is a text file with one link per line. A line may start with options for that link:
 
 ```text
 # these follow --playlist, or its absence
@@ -71,12 +55,10 @@ https://youtu.be/aaaaaaaaaaa
 --playlist --out jpop  https://www.youtube.com/playlist?list=PLzzzz
 ```
 
-`--out` names a folder **under** the one the fetch was pointed at — a list may not reach outside it —
-and each folder keeps its own `.km-fetched.txt`, because what is already in a folder is a fact about
-that folder. A list with none of these markers in it is an ordinary yt-dlp batch file and is handed
-over as one.
+`--out` in a list names a folder under the output folder. Each folder keeps its own
+`.km-fetched.txt`.
 
-Lines **above the first link** are a header, and say what is true of the whole list:
+Lines above the first link are a header. They set options for the whole list:
 
 ```text
 --cookies-from-browser firefox
@@ -87,206 +69,109 @@ Lines **above the first link** are a header, and say what is true of the whole l
 https://youtu.be/aaaaaaaaaaa
 ```
 
-It may carry `--playlist`, `--subs`, `--normalize`, `--no-archive`, `--limit N`,
-`--cookies-from-browser BROWSER`, `--format SELECTOR`, `--sort ORDER` and `--video SIZE` — the
-settings a whole run shares, spelled as the flags they override. What you pass on the command line wins over what the
-file says; in the window they arrive as ticked boxes you can untick. A folder that always needs a
-cookie jar says so once instead of being retyped.
+A header may carry `--playlist`, `--subs`, `--normalize`, `--no-archive`, `--limit N`,
+`--cookies-from-browser BROWSER`, `--format SELECTOR`, `--sort ORDER` and `--video SIZE`. An option
+on the command line overrides the same option in the header.
 
-**`.kmvf` rather than `.txt`.** A list is a document with a grammar,
-and `.txt` is the one thing that cannot say so to an operating system. With an extension of its own
-it carries the program's icon and opens by double-clicking:
+A list named `km-video-fetch.kmvf` in the output folder is that folder's own list. It is read when
+you give no links and no `--from-file`, and the window offers it on the Fetch page.
+
+The installers open `.kmvf` files with the window. Opening one fills the page in and fetches
+nothing until you press Fetch:
 
 ```sh
-km-video-downloader anime.kmvf     # the window, that list filled in, nothing fetched
+km-video-downloader anime.kmvf
 ```
 
-The output folder moves to the list's own folder and the list is offered ticked; pressing Fetch is
-still yours. Opening a second one while the window is up hands it to that window rather than starting
-a second copy — and so does opening the program itself again, which brings the window you already
-have forward instead of failing over a port it cannot have. **Two different rules, easy to
-conflate:** a folder's own list is the one file named exactly `km-video-fetch.kmvf` sitting in it, while
-the association is on the extension and opens any such file anywhere.
+[`docs/design.md`](docs/design.md) has the full rules for a list.
 
 ## Videos you already have
 
-`--convert` takes a video that is already on disk and puts it in the same shape a download arrives
-in. Give it a file, or a folder to take every video in it:
+`--convert` takes a video on disk and puts it in the same shape a download arrives in. Give it a
+file, or a folder to convert every video in it. Repeat it to name more than one.
 
 ```sh
-km-video-fetch --convert 'D:\rips\Band - A Song.mkv' --out ./songs
-km-video-fetch --convert D:\rips --out ./songs --video small
-km-video-fetch --convert D:\rips --out ./songs --dry-run   # say what would happen, do nothing
+km-video-fetch --convert './rips/Band - A Song.mkv' --out ./songs
+km-video-fetch --convert ./rips --out ./songs --video small
+km-video-fetch --convert ./rips --out ./songs --dry-run   # say what would happen, do nothing
 ```
 
-**The file you name is read and never written.** The result goes into `--out` under the same name
-with a `.mp4` extension, and the original stays where it was. A video already in the right shape is
-copied rather than re-encoded — re-encoding it would take minutes and lose a generation of picture to
-produce a file packaging treats identically.
-
-If something of that name is in the output folder already, that file is skipped and nothing is
-written over it. So running the same conversion twice does nothing the second time, and you can point
-it at a folder again after adding a few videos to it.
-
-`--video` works here as it does for a download, with one difference: a picture larger than the size
-you asked for is re-encoded down to it rather than reported and left alone, because re-encoding is
-what you asked for. AAC sound is copied through untouched whichever size you choose.
-
-Repeat `--convert` to name more than one thing. The options that belong to a download — `--playlist`,
-`--cookies-from-browser`, a URL — are refused beside it.
+- The original file is never changed.
+- The result goes into `--out` under the same name, with a `.mp4` extension.
+- A file of that name already in `--out` is skipped, so running the same conversion again converts
+  only what is new.
+- A video already in the right shape is copied. A picture larger than `--video` is re-encoded down
+  to it.
 
 ## The window
 
-It is a real application on Windows and macOS: its own window, its own icon, no console. Inside the
-window is a webview over the page the same process is serving, so one set of templates answers for
-the window and for a browser tab alike — `--browser` asks for the tab, and a `--no-default-features`
-build only has the tab.
+`km-video-downloader` opens its own window on Windows and macOS. `--browser` uses a browser tab
+instead.
 
-On Windows there are two executables. `km-video-downloader.exe` is the one to double-click;
-`km-video-downloader-console.exe` is the same program from a shell, where `--help` and the startup
-address have somewhere to go. A program cannot choose at run time which it is — the subsystem is a
-field in the PE header fixed by the linker.
+It has two pages. **Fetch** downloads links. **Convert** does the same for videos already on disk.
+One job runs at a time, and Stop ends it. The output folder and the options are remembered between
+runs.
 
-It listens on `127.0.0.1:8181` — **this computer only**, because there is no
-password on it and it writes files as you. `--lan` opens it to the rest of your network, for a
-network you trust and only while you need it. It remembers the output folder and the options
-between runs, in this platform's own config directory.
+The program serves its page on `127.0.0.1:8181`, which only this computer can reach. It has no
+password and it writes files as you. `--lan` opens it to your network, so use it only on a network
+you trust.
 
-There are two pages, chosen in the bar. **Fetch** is in four parts: where the videos go, what to
-fetch, how, and what happened. **Convert** is the same four over videos already on disk, and the
-picker there lists the video files in a folder as well as the folders — clicking one adds its path to
-the box, because a browser hands a page a picked file's contents rather than its location and a video
-is gigabytes.
-
-A folder is chosen by typing a path or by browsing — the listing is done on the server, because a
-browser will not tell a page where a picked file lives, and a native dialog would mean a GUI toolkit
-on every platform for one interaction. Progress is polled once a second, and the output of whatever
-is doing the work is kept beside the bar, because in a terminal that is what somebody reads when
-something fails and there is no terminal here. One thing runs at a time, and Stop belongs to whatever
-that is.
+Windows has two executables. Double-click `km-video-downloader.exe`. Run
+`km-video-downloader-console.exe` from a shell when you want `--help` or other printed output.
 
 ## What you need
 
-Two other programs, neither bundled and neither linked:
+Two other programs, neither bundled:
 
-- **[yt-dlp](https://github.com/yt-dlp/yt-dlp)** — does the downloading. `--yt-dlp PATH` when it is
-  not on `PATH`, which is common when `pipx` or a virtualenv installed it. **Keep it current**: sites
-  change what they serve, and a copy a few months old fails in ways that look like a broken network.
-  This tool prints the version it found and says so when it is stale.
-- **ffmpeg** — yt-dlp muxes with it, `ffprobe` from the same package reads files back, and
-  `--normalize` re-encodes with it.
-
-Nothing here links either of them, which is why building this needs only a Rust toolchain — no C
-compiler, no bindgen, no libclang.
+- **[yt-dlp](https://github.com/yt-dlp/yt-dlp)** does the downloading. Keep it current, because
+  sites change what they serve and an old copy fails in ways that look like a broken network. Pass
+  `--yt-dlp PATH` when it is not on `PATH`.
+- **ffmpeg**, with the `ffprobe` that comes in the same package, muxes, checks and re-encodes the
+  files.
 
 ## Building
 
-**The compiler version is not yours to choose.** `rust-toolchain.toml` names an exact one and pulls
-`rustfmt` and `clippy` in with it, so the first `cargo` command in the checkout downloads what that
-file asks for and `rustup update` is not part of building this.
+`rust-toolchain.toml` pins the compiler version, and the first `cargo` command in the checkout
+installs it.
 
 ```sh
 cargo build --workspace
 cargo run -p km-video-fetch -- --help
 ```
 
-With [Task](https://taskfile.dev) installed, `task --list` prints what is routine. The ones worth
-knowing:
+With [Task](https://taskfile.dev) installed, `task --list` prints every task. The main ones:
 
 ```sh
-task check      # fmt, clippy, tests — in the order a failure is cheapest to read
-task lint:prose # the prose this branch adds states its rule rather than narrating it
-task dist       # stage a folder somebody can be handed, into dist/
-task dist:bin   # ...or one folder with every program in it
-task dist:setup # ...or a setup program, for the people who would rather not unpack one
-task dist:setup:notarized  # ...that one signed and sent to Apple, on macOS
+task check        # format check, clippy and tests
 task run -- '<url>' --out ./songs
-task ui         # run the window
-task clean:old  # take away the staged releases that are not this version
+task ui           # run the window
+task dist         # stage a folder for each program into dist/
+task dist:bin     # stage one folder holding every program
+task dist:setup   # build the installer for this platform
+task clean:old    # remove staged folders from other versions
 ```
 
-`task dist` writes `dist/<app>/<platform>/<app>-<version>-<triple>/` holding the executable, both
-licence texts and a README naming the version — plus the console twin on Windows, and a `.app`
-bundle on macOS. `dist/` is output and is never committed.
+`task dist` writes `dist/<app>/<platform>/<app>-<version>-<triple>/`. `dist/` is output and is
+never committed.
 
-A staged folder is never overwritten by a build of a *different* version — the version is part of its
-name — so a build of an earlier version sits beside the current one until something takes it away. `task clean:old`
-does, keeping the current version and removing the rest; `--dry-run` shows what it would take first.
-`task clean` takes every staged release, and `task clean:all` adds what cargo built.
+`task dist:setup` builds one installer holding both programs. On Windows it needs
+[Inno Setup](https://jrsoftware.org/isinfo.php) 6 (`winget install JRSoftware.InnoSetup`). On macOS
+it needs nothing extra.
 
-`task dist:bin` answers the other question people ask of a build — *give me one folder with all of
-it in it*. It writes `dist/bin/<platform>/` and `dist/bin-console/<platform>/`: the first holds the
-form you double-click where a program has one, the second the form that prints, and anything with
-only one form is in both. `ZIP=1` also writes a versioned archive of each — the folders carry no
-version, because a folder is where you keep the current build and the number belongs on the thing
-you hand over. It gathers rather than builds, so nothing about what a staged folder holds is written
-down twice.
-
-`task dist:setup` builds the third kind of carrier: one installer holding both programs, with a
-checkbox for each. It is deliberately not part of `task dist`, which would otherwise stage
-everything twice.
-
-On **Windows** it writes `dist/setup/windows/km-video-tools-setup-<version>-x86_64.exe`, an
-[Inno Setup](https://jrsoftware.org/isinfo.php) installer that puts both programs in
-`%LOCALAPPDATA%\Programs` **for your account only** — so it raises no UAC prompt — offers to add
-itself to your `PATH` and to open `.kmvf` files with the downloader, and takes both back out when
-uninstalled. It needs Inno Setup 6 (`winget install JRSoftware.InnoSetup`), which it looks for in the
-per-user location `winget` uses before the Program Files ones.
-
-On **macOS** it writes `dist/setup/macos/km-video-tools-setup-<version>-<arch>-unsigned.pkg`, an
-Apple installer package: the application goes to `/Applications` and `km-video-fetch` to
-`/usr/local/km-video-tools`, with a symlink in `/usr/local/bin`, which is already on your `PATH` —
-so there is no “add me to your `PATH`” tick and nothing edits a `.zshrc`. There is no tick for the
-`.kmvf` association either: the application bundle declares the file type and LaunchServices notices
-it, so removing the application removes the association with it. It needs nothing that is not already
-in the base system, and asks for your administrator password once.
-
-Both **round-trip themselves on every build** — install into a scratch location, run each program,
-uninstall, and assert nothing was left behind. **Each also proves its own half of the association**,
-because neither platform fails a build that quietly associates nothing. The Windows one installs it
-and reads the keys back with `reg.exe`, which is the only way to catch a `[Registry]` entry Inno
-skipped; the macOS one reads the document types out of the packaged bundle's `Info.plist` — that the
-type it declares is the type it opens, that it names exactly one extension, and that the extension is
-the one reported rather than a second copy typed into the check.
-
-`task dist:setup:notarized` is the macOS build worth handing over: the same package with every
-executable signed by a Developer ID, the package signed by its Installer counterpart, sent to Apple
-and the returned ticket stapled into the file. It opens on a first double-click anywhere, with no
-network needed to check it. The three states get three names — the notarized build takes the plain
-`...-<arch>.pkg`, a signed-but-not-notarized one `-unnotarized`, and the ad-hoc default `-unsigned`
-— because a shared name means an ordinary build replaces a notarized package with something that
-looks identical in a folder listing.
-
-Both certificates are read out of the keychain, so nothing here names a certificate holder and a
-checkout signs with whatever the machine has. `KM_SIGN_IDENTITY`, `KM_SIGN_INSTALLER_IDENTITY` and
-`KM_NOTARY_PROFILE` override that. Notarizing needs credentials stored once with
-`xcrun notarytool store-credentials km-video-tools`.
-
-The **Windows** installer is unsigned, so a recipient meets SmartScreen on a first run; the fix for
-that is a purchased certificate rather than a build step. Neither installer touches your downloaded
-videos or your settings when removed, and each says so on its way out.
-
-The release procedure both of these feed into is [RELEASE.md](RELEASE.md).
+[RELEASE.md](RELEASE.md) covers signing, notarizing and cutting a release.
 
 ## Layout
 
 ```
 crates/
-  km-video-core/        the library: the yt-dlp argv, running it, ffprobe, the packaging profile,
-                        and `fetch()` — the whole sequence, reported as events
-  km-video-fetch/       the command line — argument parsing and what gets printed
-  km-video-downloader/  the window and the page — tao, wry, axum, askama and vendored htmx,
-                        every one of them compiled into a single file
+  km-video-core/        the library: the yt-dlp arguments, running it, and checking the result
+  km-video-fetch/       the command line
+  km-video-downloader/  the window and its pages
 icon/                   generated: `cargo run -p km-video-downloader --example icon`
-tools/dist/             staging scripts; they write dist/, they never build into it
-tools/platform/         the two setup programs: an Inno Setup .iss and a .pkg Distribution,
-                        each with the script that drives it
+tools/dist/             the scripts that stage dist/
+tools/platform/         the Windows and macOS installers
 docs/                   why things are the way they are
 ```
-
-The rule the split exists to keep: **a binary crate here is a command line and its output.** Every
-`println!` in `km-video-fetch` is in its `main.rs`, nothing in `km-video-core` prints at all, and
-`km-video-downloader` renders the same events into HTML.
 
 ## Licence
 
